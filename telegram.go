@@ -133,7 +133,8 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 						"2. В MAX сделайте бота админом группы\n"+
 						"3. В одном из чатов отправьте /bridge\n"+
 						"4. Бот выдаст ключ — отправьте /bridge <ключ> в другом чате\n"+
-						"5. Готово!"))
+						"5. Готово!\n\n"+
+						"Поддержка: https://github.com/BEARlogin/max-telegram-bridge-bot/issues"))
 				continue
 			}
 

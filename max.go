@@ -146,7 +146,8 @@ func (b *Bridge) listenMax(ctx context.Context) {
 						"   MAX: " + b.cfg.MaxBotURL + "\n" +
 						"2. В одном из чатов отправьте /bridge\n" +
 						"3. Бот выдаст ключ — отправьте его в другом чате\n" +
-						"4. Готово!")
+						"4. Готово!\n\n" +
+						"Поддержка: https://github.com/BEARlogin/max-telegram-bridge-bot/issues")
 				b.maxApi.Messages.Send(ctx, m)
 				continue
 			}
