@@ -325,6 +325,52 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 			b.repo.SaveMsg(msg.Chat.ID, msg.MessageID, maxChatID, result.Body.Mid)
 		}
 		return
+	} else if msg.Animation != nil {
+		// GIF в Telegram — это mp4 в поле Animation
+		name := "animation.mp4"
+		if msg.Animation.FileName != "" {
+			name = msg.Animation.FileName
+		}
+		if uploaded, err := b.uploadTgMediaToMax(ctx, msg.Animation.FileID, maxschemes.VIDEO, name); err == nil {
+			mediaToken = uploaded.Token
+			mediaAttType = "video"
+		} else {
+			slog.Error("TG→MAX gif upload failed", "err", err)
+		}
+	} else if msg.Sticker != nil {
+		// Стикеры: обычные — WebP (фото), анимированные — TGS/WEBM
+		if msg.Sticker.IsAnimated {
+			if uploaded, err := b.uploadTgMediaToMax(ctx, msg.Sticker.FileID, maxschemes.FILE, "sticker.webm"); err == nil {
+				mediaToken = uploaded.Token
+				mediaAttType = "video"
+			} else {
+				slog.Error("TG→MAX sticker upload failed", "err", err)
+			}
+		} else {
+			// Обычный стикер WebP → отправляем как фото
+			if fileURL, err := b.tgBot.GetFileDirectURL(msg.Sticker.FileID); err == nil {
+				if uploaded, err := b.maxApi.Uploads.UploadPhotoFromUrl(ctx, fileURL); err == nil {
+					m := maxbot.NewMessage().SetChat(maxChatID).SetText(caption)
+					m.AddPhoto(uploaded)
+					if msg.ReplyToMessage != nil {
+						if maxReplyID, ok := b.repo.LookupMaxMsgID(msg.Chat.ID, msg.ReplyToMessage.MessageID); ok {
+							m.SetReply(caption, maxReplyID)
+						}
+					}
+					slog.Info("TG→MAX sending sticker as photo", "uid", msg.From.ID, "tgChat", msg.Chat.ID)
+					result, err := b.maxApi.Messages.SendWithResult(ctx, m)
+					if err != nil {
+						slog.Error("TG→MAX sticker send failed", "err", err)
+					} else {
+						slog.Info("TG→MAX sent", "mid", result.Body.Mid)
+						b.repo.SaveMsg(msg.Chat.ID, msg.MessageID, maxChatID, result.Body.Mid)
+					}
+					return
+				} else {
+					slog.Error("TG→MAX sticker photo upload failed", "err", err)
+				}
+			}
+		}
 	} else if msg.Video != nil {
 		name := "video.mp4"
 		if msg.Video.FileName != "" {
