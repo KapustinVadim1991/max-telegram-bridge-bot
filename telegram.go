@@ -169,6 +169,7 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 				b.cpTgOwnerMu.Lock()
 				b.cpTgOwner[channelID] = msg.From.ID
 				b.cpTgOwnerMu.Unlock()
+				slog.Info("TG crosspost forward", "tgUser", msg.From.ID, "tgChannel", channelID)
 
 				// Проверяем, уже связан ли канал
 				if maxChatID, direction, ok := b.repo.GetCrosspostMaxChat(channelID); ok {
