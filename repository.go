@@ -28,13 +28,17 @@ type Repository interface {
 	Unpair(platform string, chatID int64) bool
 
 	// Crosspost methods
-	PairCrosspost(tgChatID, maxChatID, ownerID int64) error
-	GetCrosspostOwner(maxChatID int64) int64
+	PairCrosspost(tgChatID, maxChatID, ownerID, tgOwnerID int64) error
+	GetCrosspostOwner(maxChatID int64) (maxOwner, tgOwner int64)
 	GetCrosspostMaxChat(tgChatID int64) (maxChatID int64, direction string, ok bool)
 	GetCrosspostTgChat(maxChatID int64) (tgChatID int64, direction string, ok bool)
 	ListCrossposts(ownerID int64) []CrosspostLink
 	SetCrosspostDirection(maxChatID int64, direction string) bool
 	UnpairCrosspost(maxChatID, deletedBy int64) bool
+
+	// Users
+	TouchUser(userID int64, platform, username, firstName string)
+	ListUsers(platform string) ([]int64, error)
 
 	// Send queue (retry при недоступности MAX/TG API)
 	EnqueueSend(item *QueueItem) error

@@ -101,6 +101,11 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 			text := strings.TrimSpace(msg.Text)
 			slog.Debug("TG msg received", "from", msg.From.FirstName, "chat", msg.Chat.ID)
 
+			// Запоминаем юзера при личном сообщении
+			if msg.Chat.Type == "private" && msg.From != nil {
+				b.repo.TouchUser(msg.From.ID, "tg", msg.From.UserName, msg.From.FirstName)
+			}
+
 			if text == "/whoami" {
 				b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID,
 					"MaxTelegramBridgeBot — мост между Telegram и MAX.\n"+
@@ -159,6 +164,11 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 			if msg.Chat.Type == "private" && msg.ForwardFromChat != nil && msg.ForwardFromChat.Type == "channel" {
 				channelID := msg.ForwardFromChat.ID
 				channelTitle := msg.ForwardFromChat.Title
+
+				// Запоминаем TG user ID для этого канала (для owner при pairing)
+				b.cpTgOwnerMu.Lock()
+				b.cpTgOwner[channelID] = msg.From.ID
+				b.cpTgOwnerMu.Unlock()
 
 				// Проверяем, уже связан ли канал
 				if maxChatID, direction, ok := b.repo.GetCrosspostMaxChat(channelID); ok {
@@ -502,8 +512,7 @@ func (b *Bridge) handleTgCallback(ctx context.Context, query *tgbotapi.CallbackQ
 		if dir != "tg>max" && dir != "max>tg" && dir != "both" {
 			return
 		}
-		ownerID := b.repo.GetCrosspostOwner(maxChatID)
-		if ownerID != 0 && ownerID != fromID {
+		if !b.isCrosspostOwner(maxChatID, fromID) {
 			b.tgBot.Request(tgbotapi.NewCallback(query.ID, "Только владелец связки может изменять настройки."))
 			return
 		}
@@ -525,8 +534,7 @@ func (b *Bridge) handleTgCallback(ctx context.Context, query *tgbotapi.CallbackQ
 		if err != nil {
 			return
 		}
-		ownerID := b.repo.GetCrosspostOwner(maxChatID)
-		if ownerID != 0 && ownerID != fromID {
+		if !b.isCrosspostOwner(maxChatID, fromID) {
 			b.tgBot.Request(tgbotapi.NewCallback(query.ID, "Только владелец связки может удалять."))
 			return
 		}
@@ -548,8 +556,7 @@ func (b *Bridge) handleTgCallback(ctx context.Context, query *tgbotapi.CallbackQ
 		if err != nil {
 			return
 		}
-		ownerID := b.repo.GetCrosspostOwner(maxChatID)
-		if ownerID != 0 && ownerID != fromID {
+		if !b.isCrosspostOwner(maxChatID, fromID) {
 			b.tgBot.Request(tgbotapi.NewCallback(query.ID, "Только владелец связки может удалять."))
 			return
 		}

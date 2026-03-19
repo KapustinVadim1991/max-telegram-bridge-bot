@@ -156,17 +156,16 @@ func (r *pgRepo) Unpair(platform string, chatID int64) bool {
 	return n > 0
 }
 
-func (r *pgRepo) PairCrosspost(tgChatID, maxChatID, ownerID int64) error {
+func (r *pgRepo) PairCrosspost(tgChatID, maxChatID, ownerID, tgOwnerID int64) error {
 	_, err := r.db.Exec(
-		"INSERT INTO crossposts (tg_chat_id, max_chat_id, created_at, owner_id) VALUES ($1, $2, $3, $4) ON CONFLICT (tg_chat_id, max_chat_id) DO NOTHING",
-		tgChatID, maxChatID, time.Now().Unix(), ownerID)
+		"INSERT INTO crossposts (tg_chat_id, max_chat_id, created_at, owner_id, tg_owner_id) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (tg_chat_id, max_chat_id) DO NOTHING",
+		tgChatID, maxChatID, time.Now().Unix(), ownerID, tgOwnerID)
 	return err
 }
 
-func (r *pgRepo) GetCrosspostOwner(maxChatID int64) int64 {
-	var id int64
-	r.db.QueryRow("SELECT owner_id FROM crossposts WHERE max_chat_id = $1 AND deleted_at = 0", maxChatID).Scan(&id)
-	return id
+func (r *pgRepo) GetCrosspostOwner(maxChatID int64) (maxOwner, tgOwner int64) {
+	r.db.QueryRow("SELECT owner_id, tg_owner_id FROM crossposts WHERE max_chat_id = $1 AND deleted_at = 0", maxChatID).Scan(&maxOwner, &tgOwner)
+	return
 }
 
 func (r *pgRepo) GetCrosspostMaxChat(tgChatID int64) (int64, string, bool) {
@@ -184,7 +183,7 @@ func (r *pgRepo) GetCrosspostTgChat(maxChatID int64) (int64, string, bool) {
 }
 
 func (r *pgRepo) ListCrossposts(ownerID int64) []CrosspostLink {
-	rows, err := r.db.Query("SELECT tg_chat_id, max_chat_id, direction FROM crossposts WHERE (owner_id = $1 OR owner_id = 0) AND deleted_at = 0", ownerID)
+	rows, err := r.db.Query("SELECT tg_chat_id, max_chat_id, direction FROM crossposts WHERE (owner_id = $1 OR tg_owner_id = $1 OR (owner_id = 0 AND tg_owner_id = 0)) AND deleted_at = 0", ownerID)
 	if err != nil {
 		return nil
 	}
@@ -218,6 +217,29 @@ func (r *pgRepo) UnpairCrosspost(maxChatID, deletedBy int64) bool {
 	}
 	n, _ := res.RowsAffected()
 	return n > 0
+}
+
+func (r *pgRepo) TouchUser(userID int64, platform, username, firstName string) {
+	now := time.Now().Unix()
+	r.db.Exec(`INSERT INTO users (user_id, platform, username, first_name, first_seen, last_seen) VALUES ($1, $2, $3, $4, $5, $5)
+		ON CONFLICT(user_id) DO UPDATE SET username=EXCLUDED.username, first_name=EXCLUDED.first_name, last_seen=EXCLUDED.last_seen`,
+		userID, platform, username, firstName, now)
+}
+
+func (r *pgRepo) ListUsers(platform string) ([]int64, error) {
+	rows, err := r.db.Query("SELECT user_id FROM users WHERE platform = $1", platform)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
 }
 
 func (r *pgRepo) EnqueueSend(item *QueueItem) error {

@@ -111,6 +111,11 @@ func (b *Bridge) listenMax(ctx context.Context) {
 
 			slog.Debug("MAX msg received", "from", msgUpd.Message.Sender.Name, "chat", chatID, "type", msgUpd.Message.Recipient.ChatType)
 
+			// Запоминаем юзера при личном сообщении
+			if isDialog && msgUpd.Message.Sender.UserId != 0 {
+				b.repo.TouchUser(msgUpd.Message.Sender.UserId, "max", msgUpd.Message.Sender.Username, msgUpd.Message.Sender.Name)
+			}
+
 			if text == "/whoami" {
 				m := maxbot.NewMessage().SetChat(chatID).SetText(
 					"MaxTelegramBridgeBot — мост между Telegram и MAX.\n" +
@@ -300,7 +305,12 @@ func (b *Bridge) listenMax(ctx context.Context) {
 						continue
 					}
 
-					if err := b.repo.PairCrosspost(tgChannelID, maxChannelID, msgUpd.Message.Sender.UserId); err != nil {
+					// Достаём TG owner ID (кто переслал пост из TG-канала в TG-бот)
+				b.cpTgOwnerMu.Lock()
+				tgOwnerID := b.cpTgOwner[tgChannelID]
+				b.cpTgOwnerMu.Unlock()
+
+				if err := b.repo.PairCrosspost(tgChannelID, maxChannelID, msgUpd.Message.Sender.UserId, tgOwnerID); err != nil {
 						slog.Error("crosspost pair failed", "err", err)
 						m := maxbot.NewMessage().SetChat(chatID).SetText("Ошибка при создании связки.")
 						b.maxApi.Messages.Send(ctx, m)
@@ -393,8 +403,7 @@ func (b *Bridge) handleMaxCallback(ctx context.Context, cbUpd *maxschemes.Messag
 		if dir != "tg>max" && dir != "max>tg" && dir != "both" {
 			return
 		}
-		ownerID := b.repo.GetCrosspostOwner(maxChatID)
-		if ownerID != 0 && ownerID != userID {
+		if !b.isCrosspostOwner(maxChatID, userID) {
 			b.maxApi.Messages.AnswerOnCallback(ctx, callbackID, &maxschemes.CallbackAnswer{
 				Notification: "Только владелец связки может изменять настройки.",
 			})
@@ -417,8 +426,7 @@ func (b *Bridge) handleMaxCallback(ctx context.Context, cbUpd *maxschemes.Messag
 		if err != nil {
 			return
 		}
-		ownerID := b.repo.GetCrosspostOwner(maxChatID)
-		if ownerID != 0 && ownerID != userID {
+		if !b.isCrosspostOwner(maxChatID, userID) {
 			b.maxApi.Messages.AnswerOnCallback(ctx, callbackID, &maxschemes.CallbackAnswer{
 				Notification: "Только владелец связки может удалять.",
 			})
@@ -444,8 +452,7 @@ func (b *Bridge) handleMaxCallback(ctx context.Context, cbUpd *maxschemes.Messag
 		if err != nil {
 			return
 		}
-		ownerID := b.repo.GetCrosspostOwner(maxChatID)
-		if ownerID != 0 && ownerID != userID {
+		if !b.isCrosspostOwner(maxChatID, userID) {
 			b.maxApi.Messages.AnswerOnCallback(ctx, callbackID, &maxschemes.CallbackAnswer{
 				Notification: "Только владелец связки может удалять.",
 			})

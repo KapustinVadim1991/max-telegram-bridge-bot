@@ -147,16 +147,15 @@ func (r *sqliteRepo) Unpair(platform string, chatID int64) bool {
 	return n > 0
 }
 
-func (r *sqliteRepo) PairCrosspost(tgChatID, maxChatID, ownerID int64) error {
-	_, err := r.db.Exec("INSERT OR REPLACE INTO crossposts (tg_chat_id, max_chat_id, created_at, owner_id) VALUES (?, ?, ?, ?)",
-		tgChatID, maxChatID, time.Now().Unix(), ownerID)
+func (r *sqliteRepo) PairCrosspost(tgChatID, maxChatID, ownerID, tgOwnerID int64) error {
+	_, err := r.db.Exec("INSERT OR REPLACE INTO crossposts (tg_chat_id, max_chat_id, created_at, owner_id, tg_owner_id) VALUES (?, ?, ?, ?, ?)",
+		tgChatID, maxChatID, time.Now().Unix(), ownerID, tgOwnerID)
 	return err
 }
 
-func (r *sqliteRepo) GetCrosspostOwner(maxChatID int64) int64 {
-	var id int64
-	r.db.QueryRow("SELECT owner_id FROM crossposts WHERE max_chat_id = ? AND deleted_at = 0", maxChatID).Scan(&id)
-	return id
+func (r *sqliteRepo) GetCrosspostOwner(maxChatID int64) (maxOwner, tgOwner int64) {
+	r.db.QueryRow("SELECT owner_id, tg_owner_id FROM crossposts WHERE max_chat_id = ? AND deleted_at = 0", maxChatID).Scan(&maxOwner, &tgOwner)
+	return
 }
 
 func (r *sqliteRepo) GetCrosspostMaxChat(tgChatID int64) (int64, string, bool) {
@@ -174,7 +173,7 @@ func (r *sqliteRepo) GetCrosspostTgChat(maxChatID int64) (int64, string, bool) {
 }
 
 func (r *sqliteRepo) ListCrossposts(ownerID int64) []CrosspostLink {
-	rows, err := r.db.Query("SELECT tg_chat_id, max_chat_id, direction FROM crossposts WHERE (owner_id = ? OR owner_id = 0) AND deleted_at = 0", ownerID)
+	rows, err := r.db.Query("SELECT tg_chat_id, max_chat_id, direction FROM crossposts WHERE (owner_id = ? OR tg_owner_id = ? OR (owner_id = 0 AND tg_owner_id = 0)) AND deleted_at = 0", ownerID, ownerID)
 	if err != nil {
 		return nil
 	}
@@ -208,6 +207,31 @@ func (r *sqliteRepo) UnpairCrosspost(maxChatID, deletedBy int64) bool {
 	}
 	n, _ := res.RowsAffected()
 	return n > 0
+}
+
+func (r *sqliteRepo) TouchUser(userID int64, platform, username, firstName string) {
+	now := time.Now().Unix()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.db.Exec(`INSERT INTO users (user_id, platform, username, first_name, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(user_id) DO UPDATE SET username=excluded.username, first_name=excluded.first_name, last_seen=excluded.last_seen`,
+		userID, platform, username, firstName, now, now)
+}
+
+func (r *sqliteRepo) ListUsers(platform string) ([]int64, error) {
+	rows, err := r.db.Query("SELECT user_id FROM users WHERE platform = ?", platform)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
 }
 
 func (r *sqliteRepo) EnqueueSend(item *QueueItem) error {

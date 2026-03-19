@@ -46,6 +46,9 @@ type Bridge struct {
 	cpWaitMu sync.Mutex
 	cpWait   map[int64]int64 // MAX userId → TG channel ID (ожидание пересылки)
 
+	cpTgOwnerMu sync.Mutex
+	cpTgOwner   map[int64]int64 // TG channel ID → TG user ID (кто переслал пост)
+
 	cbMu       sync.Mutex
 	breakers   map[int64]*chatBreaker // destination chatID → breaker
 }
@@ -64,9 +67,10 @@ func NewBridge(cfg Config, repo Repository, tgBot *tgbotapi.BotAPI, maxApi *maxb
 		httpClient: &http.Client{
 			Timeout: 15 * time.Second,
 		},
-		whSecret: secret,
-		cpWait:   make(map[int64]int64),
-		breakers: make(map[int64]*chatBreaker),
+		whSecret:  secret,
+		cpWait:    make(map[int64]int64),
+		cpTgOwner: make(map[int64]int64),
+		breakers:  make(map[int64]*chatBreaker),
 	}
 }
 
@@ -111,6 +115,16 @@ func (b *Bridge) cbSuccess(chatID int64) {
 	b.cbMu.Lock()
 	defer b.cbMu.Unlock()
 	delete(b.breakers, chatID)
+}
+
+// isCrosspostOwner проверяет, является ли userID владельцем связки.
+// owner_id=0 и tg_owner_id=0 — старая связка, доступна всем.
+func (b *Bridge) isCrosspostOwner(maxChatID, userID int64) bool {
+	maxOwner, tgOwner := b.repo.GetCrosspostOwner(maxChatID)
+	if maxOwner == 0 && tgOwner == 0 {
+		return true // legacy, no owner
+	}
+	return userID == maxOwner || userID == tgOwner
 }
 
 func (b *Bridge) tgWebhookPath() string {
