@@ -239,7 +239,7 @@ func (b *Bridge) listenMax(ctx context.Context) {
 			if isDialog && strings.HasPrefix(text, "/crosspost") {
 				arg := strings.TrimSpace(strings.TrimPrefix(text, "/crosspost"))
 				if arg == "" {
-					links := b.repo.ListCrossposts()
+					links := b.repo.ListCrossposts(msgUpd.Message.Sender.UserId)
 					if len(links) == 0 {
 						m := maxbot.NewMessage().SetChat(chatID).SetText(
 							"Нет активных связок.\n\n" +

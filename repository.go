@@ -32,7 +32,7 @@ type Repository interface {
 	GetCrosspostOwner(maxChatID int64) int64
 	GetCrosspostMaxChat(tgChatID int64) (maxChatID int64, direction string, ok bool)
 	GetCrosspostTgChat(maxChatID int64) (tgChatID int64, direction string, ok bool)
-	ListCrossposts() []CrosspostLink
+	ListCrossposts(ownerID int64) []CrosspostLink
 	SetCrosspostDirection(maxChatID int64, direction string) bool
 	UnpairCrosspost(maxChatID int64) bool
 

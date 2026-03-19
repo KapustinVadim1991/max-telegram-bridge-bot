@@ -140,7 +140,7 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 
 			// /crosspost в личке TG — показать список связок
 			if msg.Chat.Type == "private" && text == "/crosspost" {
-				links := b.repo.ListCrossposts()
+				links := b.repo.ListCrossposts(msg.From.ID)
 				if len(links) == 0 {
 					b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID,
 						"Нет активных связок.\n\nНастройка: перешлите пост из TG-канала сюда, затем в MAX-боте /crosspost <ID>"))

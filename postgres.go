@@ -183,8 +183,8 @@ func (r *pgRepo) GetCrosspostTgChat(maxChatID int64) (int64, string, bool) {
 	return id, dir, err == nil
 }
 
-func (r *pgRepo) ListCrossposts() []CrosspostLink {
-	rows, err := r.db.Query("SELECT tg_chat_id, max_chat_id, direction FROM crossposts")
+func (r *pgRepo) ListCrossposts(ownerID int64) []CrosspostLink {
+	rows, err := r.db.Query("SELECT tg_chat_id, max_chat_id, direction FROM crossposts WHERE owner_id = $1 OR owner_id = 0", ownerID)
 	if err != nil {
 		return nil
 	}
