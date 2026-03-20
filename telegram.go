@@ -285,11 +285,20 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 	}
 }
 
+func tgUserID(msg *tgbotapi.Message) int64 {
+	if msg.From != nil {
+		return msg.From.ID
+	}
+	return 0
+}
+
 // forwardTgToMax пересылает TG-сообщение (текст/медиа) в MAX-чат.
 func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxChatID int64, caption string) {
 	if b.cbBlocked(maxChatID) {
 		return
 	}
+
+	uid := tgUserID(msg)
 
 	// Определяем медиа
 	var mediaToken string
@@ -311,10 +320,10 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 				m.SetReply(caption, maxReplyID)
 			}
 		}
-		slog.Info("TG→MAX sending photo", "uid", msg.From.ID, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
+		slog.Info("TG→MAX sending photo", "uid", uid, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
 		result, err := b.maxApi.Messages.SendWithResult(ctx, m)
 		if err != nil {
-			slog.Error("TG→MAX send failed", "err", err, "uid", msg.From.ID, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
+			slog.Error("TG→MAX send failed", "err", err, "uid", uid, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
 			if b.cbFail(maxChatID) {
 				b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID,
 					fmt.Sprintf("Не удалось переслать в MAX. Пересылка приостановлена на %d мин. Проверьте, что бот добавлен в MAX-чат и является админом.", int(cbCooldown.Minutes()))))
@@ -357,7 +366,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 							m.SetReply(caption, maxReplyID)
 						}
 					}
-					slog.Info("TG→MAX sending sticker as photo", "uid", msg.From.ID, "tgChat", msg.Chat.ID)
+					slog.Info("TG→MAX sending sticker as photo", "uid", uid, "tgChat", msg.Chat.ID)
 					result, err := b.maxApi.Messages.SendWithResult(ctx, m)
 					if err != nil {
 						slog.Error("TG→MAX sticker send failed", "err", err)
@@ -472,7 +481,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 	var sendErr error
 
 	if mediaAttType != "" {
-		slog.Info("TG→MAX sending direct", "type", mediaAttType, "uid", msg.From.ID, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
+		slog.Info("TG→MAX sending direct", "type", mediaAttType, "uid", uid, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
 		var format string
 		if hasFormatting {
 			format = "markdown"
@@ -483,12 +492,12 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 		if hasFormatting {
 			format = "markdown"
 		}
-		slog.Info("TG→MAX sending", "uid", msg.From.ID, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
+		slog.Info("TG→MAX sending", "uid", uid, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
 		mid, sendErr = b.sendMaxDirectFormatted(ctx, maxChatID, mdCaption, "", "", replyTo, format)
 	}
 
 	if sendErr != nil {
-		slog.Error("TG→MAX send failed", "err", sendErr, "uid", msg.From.ID, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
+		slog.Error("TG→MAX send failed", "err", sendErr, "uid", uid, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
 		// Ставим в очередь на повторную отправку
 		var format string
 		if hasFormatting {
@@ -501,7 +510,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 		}
 	} else {
 		b.cbSuccess(maxChatID)
-		slog.Info("TG→MAX sent", "mid", mid, "uid", msg.From.ID, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
+		slog.Info("TG→MAX sent", "mid", mid, "uid", uid, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
 		b.repo.SaveMsg(msg.Chat.ID, msg.MessageID, maxChatID, mid)
 	}
 }
