@@ -194,7 +194,7 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 				}
 
 				cpMsg := tgbotapi.NewMessage(msg.Chat.ID,
-					fmt.Sprintf("TG-канал «%s»\nID: <code>%d</code>\n\nВ личке MAX-бота напишите:\n<code>/crosspost %d</code>\n\nMAX-бот: %s\n\nЗатем перешлите пост из MAX-канала.", channelTitle, channelID, channelID, b.cfg.MaxBotURL))
+					fmt.Sprintf("TG-канал «%s»\nID: <code>%d</code>\n\nВ личке MAX-бота напишите:\n<code>/crosspost %d</code>\n\nMAX-бот: %s\n\nЗатем перешлите пост из MAX-канала в личку MAX-бота.", channelTitle, channelID, channelID, b.cfg.MaxBotURL))
 				cpMsg.ParseMode = "HTML"
 				b.tgBot.Send(cpMsg)
 				continue
