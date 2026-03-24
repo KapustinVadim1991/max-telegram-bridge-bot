@@ -157,6 +157,10 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 
 			// /crosspost в личке TG — показать список связок
 			if msg.Chat.Type == "private" && text == "/crosspost" {
+				if !b.isUserAllowed(msg.From.ID) {
+					slog.Debug("TG user not allowed", "uid", msg.From.ID)
+					continue
+				}
 				links := b.repo.ListCrossposts(msg.From.ID)
 				if len(links) == 0 {
 					b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID,
@@ -174,6 +178,10 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 
 			// Пересланное сообщение из канала → показать ID или управление (только в личке)
 			if msg.Chat.Type == "private" && msg.ForwardFromChat != nil && msg.ForwardFromChat.Type == "channel" {
+				if !b.isUserAllowed(msg.From.ID) {
+					slog.Debug("TG user not allowed", "uid", msg.From.ID)
+					continue
+				}
 				channelID := msg.ForwardFromChat.ID
 				channelTitle := msg.ForwardFromChat.Title
 
@@ -217,6 +225,10 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 
 			// /bridge prefix on/off
 			if text == "/bridge prefix on" || text == "/bridge prefix off" {
+				if msg.From != nil && !b.isUserAllowed(msg.From.ID) {
+					slog.Debug("TG user not allowed", "uid", msg.From.ID)
+					continue
+				}
 				if isGroup && !isAdmin {
 					b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Эта команда доступна только админам группы."))
 					continue
@@ -236,6 +248,10 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 
 			// /bridge или /bridge <key>
 			if text == "/bridge" || strings.HasPrefix(text, "/bridge ") {
+				if msg.From != nil && !b.isUserAllowed(msg.From.ID) {
+					slog.Debug("TG user not allowed", "uid", msg.From.ID)
+					continue
+				}
 				if isGroup && !isAdmin {
 					b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Эта команда доступна только админам группы."))
 					continue

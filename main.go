@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 
 	maxbot "github.com/max-messenger/max-bot-api-client-go"
@@ -60,6 +62,23 @@ func main() {
 		WebhookURL:  os.Getenv("WEBHOOK_URL"),
 		WebhookPort: envOr("WEBHOOK_PORT", "8443"),
 		TgAPIURL:    os.Getenv("TG_API_URL"),
+	}
+
+	// Parse ALLOWED_USERS whitelist
+	if v := os.Getenv("ALLOWED_USERS"); v != "" {
+		for _, s := range strings.Split(v, ",") {
+			s = strings.TrimSpace(s)
+			if s == "" {
+				continue
+			}
+			id, err := strconv.ParseInt(s, 10, 64)
+			if err != nil {
+				slog.Error("Invalid ALLOWED_USERS value", "value", s, "err", err)
+				os.Exit(1)
+			}
+			cfg.AllowedUsers = append(cfg.AllowedUsers, id)
+		}
+		slog.Info("User whitelist enabled", "count", len(cfg.AllowedUsers))
 	}
 
 	tgToken := mustEnv("TG_TOKEN")
