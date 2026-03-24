@@ -16,12 +16,13 @@ import (
 
 // Config — настройки bridge, читаемые из env.
 type Config struct {
-	MaxToken    string // токен MAX API (нужен для direct-send/upload)
-	TgBotURL    string // ссылка на TG-бота для /help
-	MaxBotURL   string // ссылка на MAX-бота для /help
-	WebhookURL  string // базовый URL для webhook (если пусто — long polling)
-	WebhookPort string // порт для webhook сервера
-	TgAPIURL    string // custom TG Bot API URL (если пусто — api.telegram.org)
+	MaxToken     string  // токен MAX API (нужен для direct-send/upload)
+	TgBotURL     string  // ссылка на TG-бота для /help
+	MaxBotURL    string  // ссылка на MAX-бота для /help
+	WebhookURL   string  // базовый URL для webhook (если пусто — long polling)
+	WebhookPort  string  // порт для webhook сервера
+	TgAPIURL     string  // custom TG Bot API URL (если пусто — api.telegram.org)
+	AllowedUsers []int64 // whitelist TG user IDs (empty = allow all)
 }
 
 // chatBreaker хранит состояние circuit breaker для одного чата.
@@ -121,6 +122,20 @@ func (b *Bridge) cbSuccess(chatID int64) {
 	b.cbMu.Lock()
 	defer b.cbMu.Unlock()
 	delete(b.breakers, chatID)
+}
+
+// isUserAllowed проверяет, есть ли tgUserID в белом списке.
+// Если AllowedUsers пуст — доступ разрешён всем.
+func (b *Bridge) isUserAllowed(tgUserID int64) bool {
+	if len(b.cfg.AllowedUsers) == 0 {
+		return true
+	}
+	for _, id := range b.cfg.AllowedUsers {
+		if id == tgUserID {
+			return true
+		}
+	}
+	return false
 }
 
 // isCrosspostOwner проверяет, является ли userID владельцем связки.

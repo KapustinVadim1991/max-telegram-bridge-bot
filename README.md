@@ -154,6 +154,8 @@ export MAX_TOKEN=your_token
 | `MAX_BOT_URL` | Ссылка на MAX-бота (показывается в `/help`) | `https://max.ru/id710708943262_bot` |
 | `WEBHOOK_URL` | Базовый URL для webhook, например `https://bridge.example.com` (если не задан — long polling). Эндпоинты: `/tg-webhook`, `/max-webhook` | — |
 | `WEBHOOK_PORT` | Порт для webhook сервера | `8443` |
+| `LOG_LEVEL` | Уровень логирования: `debug`, `info`, `warn`, `error` | `info` |
+| `ALLOWED_USERS` | Белый список Telegram user ID через запятую. Если не задан — доступ открыт для всех | — |
 
 ## Лицензия
 
