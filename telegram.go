@@ -296,6 +296,18 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 				continue
 			}
 
+			// Media group (альбом) — буферизуем и отправляем вместе
+			if msg.MediaGroupID != "" {
+				go b.bufferMediaGroup(ctx, msg.MediaGroupID, mediaGroupItem{
+					photoSizes: msg.Photo,
+					caption:    caption,
+					replyToMsg: msg.ReplyToMessage,
+					entities:   msg.CaptionEntities,
+					msg:        msg,
+				}, maxChatID)
+				continue
+			}
+
 			go b.forwardTgToMax(ctx, msg, maxChatID, caption)
 		}
 	}

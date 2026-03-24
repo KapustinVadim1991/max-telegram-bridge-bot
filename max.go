@@ -579,31 +579,119 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 		htmlCaption = maxMarkupsToHTML(text, body.Markups)
 	}
 
+	// Собираем вложения: фото/видео → albumMedia (отправляем вместе), остальные → soloMedia
+	var albumMedia []interface{}
+	var soloMedia []struct {
+		url     string
+		attType string
+	}
+	pm := ""
+	if useHTML {
+		pm = "HTML"
+	}
+
 	for _, att := range body.Attachments {
-		var attURL, attType string
 		switch a := att.(type) {
 		case *maxschemes.PhotoAttachment:
-			attURL, attType = a.Payload.Url, "photo"
-		case *maxschemes.VideoAttachment:
-			attURL, attType = a.Payload.Url, "video"
-		case *maxschemes.AudioAttachment:
-			attURL, attType = a.Payload.Url, "audio"
-		case *maxschemes.FileAttachment:
-			attURL, attType = a.Payload.Url, "file"
-		case *maxschemes.StickerAttachment:
-			attURL, attType = a.Payload.Url, "sticker"
-		}
-		if attURL != "" {
-			qAttType, qAttURL = attType, attURL
-			pm := ""
-			if useHTML {
-				pm = "HTML"
+			if a.Payload.Url != "" {
+				if len(albumMedia) == 0 {
+					qAttType, qAttURL = "photo", a.Payload.Url
+				}
+				p := tgbotapi.NewInputMediaPhoto(tgbotapi.FileURL(a.Payload.Url))
+				albumMedia = append(albumMedia, p)
 			}
-			sent, sendErr = b.sendTgMediaFromURL(tgChatID, attURL, attType, htmlCaption, pm, replyToID)
-			mediaSent = true
+		case *maxschemes.VideoAttachment:
+			if a.Payload.Url != "" {
+				if len(albumMedia) == 0 {
+					qAttType, qAttURL = "video", a.Payload.Url
+				}
+				v := tgbotapi.NewInputMediaVideo(tgbotapi.FileURL(a.Payload.Url))
+				albumMedia = append(albumMedia, v)
+			}
+		case *maxschemes.AudioAttachment:
+			if a.Payload.Url != "" {
+				if qAttType == "" {
+					qAttType, qAttURL = "audio", a.Payload.Url
+				}
+				soloMedia = append(soloMedia, struct {
+					url     string
+					attType string
+				}{a.Payload.Url, "audio"})
+			}
+		case *maxschemes.FileAttachment:
+			if a.Payload.Url != "" {
+				if qAttType == "" {
+					qAttType, qAttURL = "file", a.Payload.Url
+				}
+				soloMedia = append(soloMedia, struct {
+					url     string
+					attType string
+				}{a.Payload.Url, "file"})
+			}
+		case *maxschemes.StickerAttachment:
+			if a.Payload.Url != "" {
+				if qAttType == "" {
+					qAttType, qAttURL = "sticker", a.Payload.Url
+				}
+				soloMedia = append(soloMedia, struct {
+					url     string
+					attType string
+				}{a.Payload.Url, "sticker"})
+			}
 		}
-		if mediaSent {
-			break
+	}
+
+	// Отправляем фото/видео как альбом (если их несколько — grouped, иначе — single)
+	if len(albumMedia) > 0 {
+		mediaSent = true
+		// Caption и reply только к первому элементу
+		if htmlCaption != "" || replyToID != 0 {
+			switch first := albumMedia[0].(type) {
+			case tgbotapi.InputMediaPhoto:
+				first.Caption = htmlCaption
+				if pm != "" {
+					first.ParseMode = pm
+				}
+				albumMedia[0] = first
+			case tgbotapi.InputMediaVideo:
+				first.Caption = htmlCaption
+				if pm != "" {
+					first.ParseMode = pm
+				}
+				albumMedia[0] = first
+			}
+		}
+
+		if len(albumMedia) == 1 {
+			// Одно вложение — отправляем обычным сообщением (альбом из 1 элемента не имеет reply)
+			sent, sendErr = b.sendTgMediaFromURL(tgChatID, qAttURL, qAttType, htmlCaption, pm, replyToID)
+		} else {
+			// Несколько — отправляем как media group (альбом)
+			cfg := tgbotapi.NewMediaGroup(tgChatID, albumMedia)
+			if replyToID != 0 {
+				cfg.ReplyToMessageID = replyToID
+			}
+			msgs, err := b.tgBot.SendMediaGroup(cfg)
+			if err != nil {
+				slog.Error("MAX→TG album send failed", "err", err)
+				sendErr = err
+			} else if len(msgs) > 0 {
+				sent = msgs[0]
+			}
+		}
+	}
+
+	// Отправляем остальные вложения (аудио, файлы, стикеры) по одному
+	for _, sm := range soloMedia {
+		s, err := b.sendTgMediaFromURL(tgChatID, sm.url, sm.attType, "", "", 0)
+		if err != nil {
+			slog.Error("MAX→TG solo media send failed", "type", sm.attType, "err", err)
+			if sendErr == nil {
+				sendErr = err
+			}
+		} else if !mediaSent {
+			sent = s
+			mediaSent = true
 		}
 	}
 

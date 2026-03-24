@@ -52,6 +52,10 @@ type Bridge struct {
 
 	cbMu       sync.Mutex
 	breakers   map[int64]*chatBreaker // destination chatID → breaker
+
+	// Буферизация TG media groups (альбомы)
+	mgMu      sync.Mutex
+	mgBuffers map[string]*mediaGroupBuffer // MediaGroupID → buffer
 }
 
 // NewBridge создаёт экземпляр Bridge.
@@ -72,6 +76,7 @@ func NewBridge(cfg Config, repo Repository, tgBot *tgbotapi.BotAPI, maxApi *maxb
 		cpWait:    make(map[int64]int64),
 		cpTgOwner: make(map[int64]int64),
 		breakers:  make(map[int64]*chatBreaker),
+		mgBuffers: make(map[string]*mediaGroupBuffer),
 	}
 }
 
