@@ -2,6 +2,8 @@
 
 Мост между Telegram и [MAX](https://max.ru) мессенджером. Пересылает сообщения, медиа, файлы и редактирования между связанными чатами.
 
+**Сайт:** [maxtelegrambridge.ru](https://maxtelegrambridge.ru)
+
 **Боты:** [Telegram](https://t.me/MaxTelegramBridgeBot) | [MAX](https://max.ru/id710708943262_bot)
 
 ## Возможности
