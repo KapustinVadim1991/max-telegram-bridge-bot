@@ -150,12 +150,13 @@ func (b *Bridge) isUserAllowed(tgUserID int64) bool {
 
 // checkUserAllowed проверяет доступ пользователя и отправляет сообщение об отказе если нужно.
 // Возвращает true если доступ разрешён, false — если запрещён (и уже отправил ответ).
+// userID == 0 трактуется как «нет отправителя» и доступ запрещается.
 func (b *Bridge) checkUserAllowed(chatID, userID int64) bool {
-	if b.isUserAllowed(userID) {
+	if userID != 0 && b.isUserAllowed(userID) {
 		return true
 	}
 	slog.Debug("TG user not allowed", "uid", userID)
-	b.tgBot.Send(tgbotapi.NewMessage(chatID, "⛔ У вас нет прав доступа к боту."))
+	b.tgBot.Send(tgbotapi.NewMessage(chatID, "У вас нет прав доступа к боту."))
 	return false
 }
 
