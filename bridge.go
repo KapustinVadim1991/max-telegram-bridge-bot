@@ -148,6 +148,16 @@ func (b *Bridge) isUserAllowed(tgUserID int64) bool {
 	return false
 }
 
+// checkUserAllowed проверяет доступ и отправляет отказ если запрещён.
+func (b *Bridge) checkUserAllowed(chatID, userID int64) bool {
+	if b.isUserAllowed(userID) {
+		return true
+	}
+	slog.Debug("TG user not allowed", "uid", userID)
+	b.tgBot.Send(tgbotapi.NewMessage(chatID, "У вас нет прав доступа к боту."))
+	return false
+}
+
 // isCrosspostOwner проверяет, является ли userID владельцем связки.
 // owner_id=0 и tg_owner_id=0 — старая связка, доступна всем.
 func (b *Bridge) isCrosspostOwner(maxChatID, userID int64) bool {
