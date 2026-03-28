@@ -427,12 +427,16 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 				m.AddPhoto(uploaded)
 			} else {
 				slog.Error("TG→MAX photo upload failed", "err", err)
+				b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Не удалось отправить фото в MAX."))
+				return
 			}
 		} else if fileURL, err := b.tgFileURL(photo.FileID); err == nil {
 			if uploaded, err := b.maxApi.Uploads.UploadPhotoFromUrl(ctx, fileURL); err == nil {
 				m.AddPhoto(uploaded)
 			} else {
 				slog.Error("TG→MAX photo upload failed", "err", err)
+				b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Не удалось отправить фото в MAX."))
+				return
 			}
 		}
 		if msg.ReplyToMessage != nil {
@@ -468,6 +472,8 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 			mediaAttType = "video"
 		} else {
 			slog.Error("TG→MAX gif upload failed", "err", err)
+			b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf("Не удалось отправить GIF \"%s\" в MAX.", name)))
+			return
 		}
 	} else if msg.Sticker != nil {
 		// Стикеры: обычные — WebP (фото), анимированные — TGS/WEBM
@@ -480,6 +486,8 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 				mediaAttType = "video"
 			} else {
 				slog.Error("TG→MAX sticker upload failed", "err", err)
+				b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Не удалось отправить стикер в MAX."))
+				return
 			}
 		} else {
 			// Обычный стикер WebP → отправляем как фото
@@ -496,6 +504,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 					result, err := b.maxApi.Messages.SendWithResult(ctx, m)
 					if err != nil {
 						slog.Error("TG→MAX sticker send failed", "err", err)
+						b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Не удалось отправить стикер в MAX."))
 					} else {
 						slog.Info("TG→MAX sent", "mid", result.Body.Mid)
 						b.repo.SaveMsg(msg.Chat.ID, msg.MessageID, maxChatID, result.Body.Mid)
@@ -503,6 +512,8 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 					return
 				} else {
 					slog.Error("TG→MAX sticker photo upload failed", "err", err)
+					b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Не удалось отправить стикер в MAX."))
+					return
 				}
 			}
 		}
@@ -519,6 +530,8 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 			mediaAttType = "video"
 		} else {
 			slog.Error("TG→MAX video upload failed", "err", err)
+			b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf("Не удалось отправить видео \"%s\" в MAX.", name)))
+			return
 		}
 	} else if msg.VideoNote != nil {
 		if checkSize(msg.VideoNote.FileSize, "circle.mp4") {
@@ -529,6 +542,8 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 			mediaAttType = "video"
 		} else {
 			slog.Error("TG→MAX video note upload failed", "err", err)
+			b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Не удалось отправить кружок в MAX."))
+			return
 		}
 	} else if msg.Document != nil {
 		name := msg.Document.FileName
@@ -568,6 +583,9 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 				return
 			}
 			slog.Error("TG→MAX file upload failed", "err", err)
+			b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID,
+				fmt.Sprintf("Не удалось отправить файл \"%s\" в MAX.", name)))
+			return
 		}
 	} else if msg.Voice != nil {
 		if checkSize(msg.Voice.FileSize, "voice.ogg") {
@@ -584,6 +602,8 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 				return
 			}
 			slog.Error("TG→MAX voice upload failed", "err", err)
+			b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Не удалось отправить голосовое сообщение в MAX."))
+			return
 		}
 	} else if msg.Audio != nil {
 		name := "audio.mp3"
@@ -613,6 +633,8 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 				return
 			}
 			slog.Error("TG→MAX audio upload failed", "err", err)
+			b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf("Не удалось отправить аудио \"%s\" в MAX.", name)))
+			return
 		}
 	}
 
