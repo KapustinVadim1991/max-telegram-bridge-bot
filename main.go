@@ -99,6 +99,19 @@ func main() {
 		}
 	}
 
+	// Parse MAX_ALLOWED_EXTENSIONS whitelist (e.g. "pdf,docx,zip")
+	// Если не задан — расширения не проверяются локально (ошибка придёт от CDN).
+	if v := os.Getenv("MAX_ALLOWED_EXTENSIONS"); v != "" {
+		cfg.MaxAllowedExts = make(map[string]struct{})
+		for _, ext := range strings.Split(v, ",") {
+			ext = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(ext, ".")))
+			if ext != "" {
+				cfg.MaxAllowedExts[ext] = struct{}{}
+			}
+		}
+		slog.Info("MAX file extension whitelist enabled", "count", len(cfg.MaxAllowedExts))
+	}
+
 	tgToken := mustEnv("TG_TOKEN")
 	dbPath := envOr("DB_PATH", "bridge.db")
 
