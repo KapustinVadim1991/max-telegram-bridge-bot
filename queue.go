@@ -112,13 +112,9 @@ func (b *Bridge) processQueueTg2Max(ctx context.Context, item QueueItem, now tim
 	if err != nil {
 		errStr := err.Error()
 		// Permanent errors — дропаем
-		if strings.Contains(errStr, "403") || strings.Contains(errStr, "404") || strings.Contains(errStr, "chat.denied") || strings.Contains(errStr, "attachment.not.ready after") {
+		if strings.Contains(errStr, "403") || strings.Contains(errStr, "404") || strings.Contains(errStr, "chat.denied") {
 			slog.Warn("queue item dropped (permanent error)", "id", item.ID, "err", errStr)
 			b.repo.DeleteFromQueue(item.ID)
-			if strings.Contains(errStr, "attachment.not.ready after") {
-				b.tgBot.Send(tgbotapi.NewMessage(item.SrcChatID,
-					"Файл не удалось отправить в MAX: сервер слишком долго обрабатывал вложение."))
-			}
 			return
 		}
 		slog.Warn("queue retry failed", "id", item.ID, "dir", "tg2max", "attempt", item.Attempts+1, "err", err)
