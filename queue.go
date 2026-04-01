@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	queueMaxAttempts = 20               // максимум попыток
-	queueMaxAge      = 30 * time.Minute // дропаем сообщения старше 30 мин
+	queueMaxAttempts = 30                // максимум попыток
+	queueMaxAge      = 24 * time.Hour   // дропаем сообщения старше 24 часов
 	queueBatchSize   = 10
 )
 
