@@ -74,31 +74,16 @@ func NewBridge(cfg Config, repo Repository, tgBot *tgbotapi.BotAPI, maxApi *maxb
 	h := sha256.Sum256([]byte(cfg.MaxToken + tgBot.Token))
 	secret := hex.EncodeToString(h[:8])
 
-	// Transport для transfer файлов: большой таймаут, отдельный пул соединений
-	transferTransport := &http.Transport{
-		MaxIdleConns:        20,
-		MaxIdleConnsPerHost: 5,
-		IdleConnTimeout:     90 * time.Second,
-	}
-	// Transport для коротких API-запросов: отдельный пул, не засоряется при upload
-	apiTransport := &http.Transport{
-		MaxIdleConns:        20,
-		MaxIdleConnsPerHost: 10,
-		IdleConnTimeout:     90 * time.Second,
-	}
-
 	return &Bridge{
 		cfg:    cfg,
 		repo:   repo,
 		tgBot:  tgBot,
 		maxApi: maxApi,
 		httpClient: &http.Client{
-			Timeout:   5 * time.Minute, // для download/upload больших файлов
-			Transport: transferTransport,
+			Timeout: 5 * time.Minute, // для download/upload больших файлов
 		},
 		apiClient: &http.Client{
-			Timeout:   15 * time.Second, // для коротких API-запросов
-			Transport: apiTransport,
+			Timeout: 15 * time.Second, // для коротких API-запросов
 		},
 		whSecret:  secret,
 		cpWait:    make(map[int64]int64),

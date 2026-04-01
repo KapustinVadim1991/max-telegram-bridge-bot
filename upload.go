@@ -18,21 +18,36 @@ import (
 
 // downloadURL скачивает файл по URL и возвращает bytes.
 func (b *Bridge) downloadURL(url string) ([]byte, error) {
+	slog.Debug("downloadURL", "url", url)
 	resp, err := b.httpClient.Get(url)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	slog.Debug("downloadURL response", "status", resp.StatusCode, "contentLength", resp.ContentLength, "url", url)
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("download status %d", resp.StatusCode)
+		return nil, fmt.Errorf("download status %d url: %s", resp.StatusCode, url)
 	}
-	return io.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 {
+		slog.Warn("downloadURL: empty body", "url", url, "contentLength", resp.ContentLength)
+		return nil, fmt.Errorf("downloaded 0 bytes from %s", url)
+	}
+	slog.Debug("downloadURL ok", "size", len(data))
+	return data, nil
 }
 
 // sendTgMediaFromURL скачивает файл с URL и отправляет в TG как upload.
 // maxBytes=0 means no size limit. fileName overrides name extracted from URL.
 func (b *Bridge) sendTgMediaFromURL(tgChatID int64, mediaURL, mediaType, caption, parseMode string, replyToID int, maxBytes int64, fileName ...string) (tgbotapi.Message, error) {
+	slog.Debug("sendTgMediaFromURL start", "url", mediaURL, "type", mediaType, "tgChat", tgChatID)
 	data, nameFromURL, err := b.downloadURLWithLimit(mediaURL, maxBytes)
+	if err == nil {
+		slog.Debug("sendTgMediaFromURL downloaded", "size", len(data), "name", nameFromURL)
+	}
 	if err != nil {
 		return tgbotapi.Message{}, fmt.Errorf("download media: %w", err)
 	}
@@ -262,9 +277,9 @@ func (b *Bridge) sendMaxDirectFormatted(ctx context.Context, chatID int64, text 
 	url := fmt.Sprintf("https://platform-api.max.ru/messages?chat_id=%d&v=1.2.5", chatID)
 
 	// Retry при attachment.not.ready (файл ещё обрабатывается)
-	for attempt := 0; attempt < 10; attempt++ {
+	for attempt := 0; attempt < 20; attempt++ {
 		if attempt > 0 {
-			delay := time.Duration(1+attempt) * time.Second
+			delay := time.Duration(2+attempt) * time.Second
 			select {
 			case <-ctx.Done():
 				return "", ctx.Err()
@@ -347,11 +362,14 @@ func (e *ErrForbiddenExtension) Error() string {
 // downloadURLWithLimit downloads a file from URL with an optional size limit.
 // maxBytes=0 means no limit. Returns bytes and filename from Content-Disposition or URL.
 func (b *Bridge) downloadURLWithLimit(url string, maxBytes int64) ([]byte, string, error) {
+	slog.Debug("downloadURLWithLimit start", "url", url, "maxBytes", maxBytes)
 	resp, err := b.httpClient.Get(url)
 	if err != nil {
+		slog.Error("downloadURLWithLimit failed", "err", err, "url", url)
 		return nil, "", err
 	}
 	defer resp.Body.Close()
+	slog.Debug("downloadURLWithLimit response", "status", resp.StatusCode, "contentLength", resp.ContentLength, "url", url)
 	if resp.StatusCode != 200 {
 		return nil, "", fmt.Errorf("download status %d", resp.StatusCode)
 	}
@@ -385,12 +403,13 @@ func (b *Bridge) downloadURLWithLimit(url string, maxBytes int64) ([]byte, strin
 		return nil, name, &ErrFileTooLarge{Size: resp.ContentLength, Name: name}
 	}
 
-	// Read with limit
-	limit := maxBytes
-	if limit <= 0 {
-		limit = 1<<63 - 1
+	// Read body
+	var data []byte
+	if maxBytes > 0 {
+		data, err = io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+	} else {
+		data, err = io.ReadAll(resp.Body)
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
 		return nil, "", err
 	}
