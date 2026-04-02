@@ -48,14 +48,14 @@ func (b *Bridge) listenMax(ctx context.Context) {
 
 			slog.Debug("MAX update", "type", fmt.Sprintf("%T", upd))
 
-			// Обработка удаления
+			// Обработка удаления (только bridge, не crosspost)
 			if delUpd, isDel := upd.(*maxschemes.MessageRemovedUpdate); isDel {
 				tgChatID, tgMsgID, ok := b.repo.LookupTgMsgID(delUpd.MessageId)
 				if !ok {
 					continue
 				}
-				// Crosspost direction check: если direction = "tg>max", удаление из MAX не должно удалять в TG
-				if _, dir, cpOk := b.repo.GetCrosspostMaxChat(tgChatID); cpOk && dir == "tg>max" {
+				// Пропускаем удаление для crosspost-каналов
+				if _, _, cpOk := b.repo.GetCrosspostMaxChat(tgChatID); cpOk {
 					continue
 				}
 				if err := b.tg.DeleteMessage(ctx, tgChatID, tgMsgID); err != nil {
