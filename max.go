@@ -276,7 +276,7 @@ func (b *Bridge) listenMax(ctx context.Context) {
 					continue
 				}
 				key := strings.TrimSpace(strings.TrimPrefix(text, "/bridge"))
-				paired, generatedKey, err := b.repo.Register(key, "max", chatID, 0)
+				paired, generatedKey, err := b.repo.Register(key, "max", chatID)
 				if err != nil {
 					slog.Error("register failed", "err", err)
 					continue
@@ -857,7 +857,6 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 		return
 	}
 
-	threadID := b.repo.GetTgThreadID(tgChatID)
 	body := msgUpd.Message.Body
 	chatID := msgUpd.Message.Recipient.ChatId
 	text := strings.TrimSpace(body.Text)
@@ -1046,11 +1045,17 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 		if text == "" {
 			return
 		}
+		// Если есть markups и caption = оригинальный текст (кросспостинг), конвертируем в HTML
 		if len(body.Markups) > 0 && caption == text {
 			htmlText := maxMarkupsToHTML(text, body.Markups)
-			sent, sendErr = b.tgSendText(tgChatID, htmlText, "HTML", replyToID, threadID)
+			tgMsg := tgbotapi.NewMessage(tgChatID, htmlText)
+			tgMsg.ParseMode = "HTML"
+			tgMsg.ReplyToMessageID = replyToID
+			sent, sendErr = b.tgBot.Send(tgMsg)
 		} else {
-			sent, sendErr = b.tgSendText(tgChatID, caption, "", replyToID, threadID)
+			tgMsg := tgbotapi.NewMessage(tgChatID, caption)
+			tgMsg.ReplyToMessageID = replyToID
+			sent, sendErr = b.tgBot.Send(tgMsg)
 		}
 	}
 
