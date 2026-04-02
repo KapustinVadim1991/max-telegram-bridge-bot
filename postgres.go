@@ -254,6 +254,19 @@ func (r *pgRepo) SetCrosspostReplacements(maxChatID int64, repl CrosspostReplace
 	return err
 }
 
+func (r *pgRepo) GetCrosspostSyncEdits(maxChatID int64) bool {
+	var v bool
+	r.db.QueryRow("SELECT COALESCE(sync_edits, FALSE) FROM crossposts WHERE max_chat_id = $1 AND deleted_at = 0", maxChatID).Scan(&v)
+	return v
+}
+
+func (r *pgRepo) SetCrosspostSyncEdits(maxChatID int64, on bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, err := r.db.Exec("UPDATE crossposts SET sync_edits = $1 WHERE max_chat_id = $2 AND deleted_at = 0", on, maxChatID)
+	return err
+}
+
 func (r *pgRepo) TouchUser(userID int64, platform, username, firstName string) {
 	now := time.Now().Unix()
 	r.db.Exec(`INSERT INTO users (user_id, platform, username, first_name, first_seen, last_seen) VALUES ($1, $2, $3, $4, $5, $5)

@@ -246,6 +246,23 @@ func (r *sqliteRepo) SetCrosspostReplacements(maxChatID int64, repl CrosspostRep
 	return err
 }
 
+func (r *sqliteRepo) GetCrosspostSyncEdits(maxChatID int64) bool {
+	var v int
+	r.db.QueryRow("SELECT COALESCE(sync_edits, 0) FROM crossposts WHERE max_chat_id = ? AND deleted_at = 0", maxChatID).Scan(&v)
+	return v != 0
+}
+
+func (r *sqliteRepo) SetCrosspostSyncEdits(maxChatID int64, on bool) error {
+	v := 0
+	if on {
+		v = 1
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, err := r.db.Exec("UPDATE crossposts SET sync_edits = ? WHERE max_chat_id = ? AND deleted_at = 0", v, maxChatID)
+	return err
+}
+
 func (r *sqliteRepo) TouchUser(userID int64, platform, username, firstName string) {
 	now := time.Now().Unix()
 	r.mu.Lock()

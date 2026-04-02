@@ -221,7 +221,7 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 						"Нет активных связок.\n\nНастройка: перешлите пост из TG-канала сюда, затем в MAX-боте /crosspost <ID>", &SendOpts{ThreadID: msg.MessageThreadID})
 				} else {
 					for _, l := range links {
-						kb := tgCrosspostKeyboard(l.Direction, l.MaxChatID)
+						kb := tgCrosspostKeyboard(l.Direction, l.MaxChatID, b.repo.GetCrosspostSyncEdits(l.MaxChatID))
 						tgTitle := b.tgChatTitle(ctx, l.TgChatID)
 						statusText := tgCrosspostStatusText(tgTitle, l.Direction)
 						if tgTitle == "" {
@@ -252,7 +252,7 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 				// Проверяем, уже связан ли канал
 				if maxChatID, direction, ok := b.repo.GetCrosspostMaxChat(channelID); ok {
 					text := tgCrosspostStatusText(channelTitle, direction)
-					kb := tgCrosspostKeyboard(direction, maxChatID)
+					kb := tgCrosspostKeyboard(direction, maxChatID, b.repo.GetCrosspostSyncEdits(maxChatID))
 					b.tg.SendMessage(ctx, msg.Chat.ID, text, &SendOpts{ReplyMarkup: kb, ThreadID: msg.MessageThreadID})
 					continue
 				}
@@ -845,9 +845,34 @@ func (b *Bridge) handleTgCallback(ctx context.Context, query *TGCallback) {
 		// Получаем title канала (из текста сообщения)
 		title := parseTgCrosspostTitle(query.Message.Text)
 		text := tgCrosspostStatusText(title, dir)
-		kb := tgCrosspostKeyboard(dir, maxChatID)
+		kb := tgCrosspostKeyboard(dir, maxChatID, b.repo.GetCrosspostSyncEdits(maxChatID))
 		b.tg.EditMessageText(ctx, chatID, msgID, text, &SendOpts{ReplyMarkup: kb})
 		b.tg.AnswerCallback(ctx, query.ID, "Готово")
+		return
+	}
+
+	// cps:maxChatID — toggle sync edits
+	if strings.HasPrefix(data, "cps:") {
+		maxChatID, err := strconv.ParseInt(strings.TrimPrefix(data, "cps:"), 10, 64)
+		if err != nil {
+			return
+		}
+		if !b.isCrosspostOwner(maxChatID, fromID) {
+			b.tg.AnswerCallback(ctx, query.ID, "Только владелец связки может изменять настройки.")
+			return
+		}
+		cur := b.repo.GetCrosspostSyncEdits(maxChatID)
+		b.repo.SetCrosspostSyncEdits(maxChatID, !cur)
+		title := parseTgCrosspostTitle(query.Message.Text)
+		_, direction, _ := b.repo.GetCrosspostTgChat(maxChatID)
+		text := tgCrosspostStatusText(title, direction)
+		kb := tgCrosspostKeyboard(direction, maxChatID, !cur)
+		b.tg.EditMessageText(ctx, chatID, msgID, text, &SendOpts{ReplyMarkup: kb})
+		if !cur {
+			b.tg.AnswerCallback(ctx, query.ID, "Синхронизация правок включена")
+		} else {
+			b.tg.AnswerCallback(ctx, query.ID, "Синхронизация правок выключена")
+		}
 		return
 	}
 
@@ -1034,7 +1059,7 @@ func (b *Bridge) handleTgCallback(ctx context.Context, query *TGCallback) {
 		}
 		title := parseTgCrosspostTitle(query.Message.Text)
 		text := tgCrosspostStatusText(title, direction) + fmt.Sprintf("\nTG: ↔ MAX: %d", maxChatID)
-		kb := tgCrosspostKeyboard(direction, maxChatID)
+		kb := tgCrosspostKeyboard(direction, maxChatID, b.repo.GetCrosspostSyncEdits(maxChatID))
 		b.tg.EditMessageText(ctx, chatID, msgID, text, &SendOpts{ReplyMarkup: kb})
 		b.tg.AnswerCallback(ctx, query.ID, "")
 		return
@@ -1072,7 +1097,7 @@ func (b *Bridge) handleTgCallback(ctx context.Context, query *TGCallback) {
 		}
 		title := parseTgCrosspostTitle(query.Message.Text)
 		text := tgCrosspostStatusText(title, direction)
-		kb := tgCrosspostKeyboard(direction, maxChatID)
+		kb := tgCrosspostKeyboard(direction, maxChatID, b.repo.GetCrosspostSyncEdits(maxChatID))
 		b.tg.EditMessageText(ctx, chatID, msgID, text, &SendOpts{ReplyMarkup: kb})
 		b.tg.AnswerCallback(ctx, query.ID, "")
 		return
@@ -1080,7 +1105,7 @@ func (b *Bridge) handleTgCallback(ctx context.Context, query *TGCallback) {
 }
 
 // tgCrosspostKeyboard строит inline-клавиатуру для управления кросспостингом.
-func tgCrosspostKeyboard(direction string, maxChatID int64) *InlineKeyboardMarkup {
+func tgCrosspostKeyboard(direction string, maxChatID int64, syncEdits bool) *InlineKeyboardMarkup {
 	lblTgMax := "TG → MAX"
 	lblMaxTg := "MAX → TG"
 	lblBoth := "⟷ Оба"
@@ -1093,6 +1118,10 @@ func tgCrosspostKeyboard(direction string, maxChatID int64) *InlineKeyboardMarku
 		lblBoth = "✓ ⟷ Оба"
 	}
 	id := strconv.FormatInt(maxChatID, 10)
+	lblSync := "✏️ Синк правок"
+	if syncEdits {
+		lblSync = "✓ ✏️ Синк правок"
+	}
 	return NewInlineKeyboard(
 		NewInlineRow(
 			NewInlineButton(lblTgMax, "cpd:tg>max:"+id),
@@ -1100,6 +1129,7 @@ func tgCrosspostKeyboard(direction string, maxChatID int64) *InlineKeyboardMarku
 			NewInlineButton(lblBoth, "cpd:both:"+id),
 		),
 		NewInlineRow(
+			NewInlineButton(lblSync, "cps:"+id),
 			NewInlineButton("🔄 Замены", "cpr:"+id),
 			NewInlineButton("❌ Удалить", "cpu:"+id),
 		),
@@ -1133,6 +1163,35 @@ func parseTgCrosspostTitle(text string) string {
 }
 
 // handleTgEditedChannelPost обрабатывает редактирования постов в TG-каналах.
-// Edit sync для crosspost-каналов отключён.
 func (b *Bridge) handleTgEditedChannelPost(ctx context.Context, edited *TGMessage) {
+	maxMsgID, ok := b.repo.LookupMaxMsgID(edited.Chat.ID, edited.MessageID)
+	if !ok {
+		return
+	}
+
+	maxChatID, direction, linked := b.repo.GetCrosspostMaxChat(edited.Chat.ID)
+	if !linked {
+		return
+	}
+	if direction == "max>tg" {
+		return
+	}
+	if !b.repo.GetCrosspostSyncEdits(maxChatID) {
+		return
+	}
+
+	text := edited.Text
+	if text == "" {
+		text = edited.Caption
+	}
+	if text == "" {
+		return
+	}
+
+	m := maxbot.NewMessage().SetChat(maxChatID).SetText(text)
+	if err := b.maxApi.Messages.EditMessage(ctx, maxMsgID, m); err != nil {
+		slog.Error("TG→MAX crosspost edit failed", "err", err)
+	} else {
+		slog.Info("TG→MAX crosspost edited", "mid", maxMsgID)
+	}
 }

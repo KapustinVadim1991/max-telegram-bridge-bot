@@ -56,6 +56,8 @@ type Repository interface {
 	UnpairCrosspost(maxChatID, deletedBy int64) bool
 	GetCrosspostReplacements(maxChatID int64) CrosspostReplacements
 	SetCrosspostReplacements(maxChatID int64, repl CrosspostReplacements) error
+	GetCrosspostSyncEdits(maxChatID int64) bool
+	SetCrosspostSyncEdits(maxChatID int64, on bool) error
 
 	// Users
 	TouchUser(userID int64, platform, username, firstName string)
