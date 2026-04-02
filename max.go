@@ -76,8 +76,8 @@ func (b *Bridge) listenMax(ctx context.Context) {
 				if !ok {
 					continue
 				}
-				// Crosspost direction check: если direction = "tg>max", edit из MAX не должен обновлять TG
-				if _, dir, cpOk := b.repo.GetCrosspostMaxChat(tgChatID); cpOk && dir == "tg>max" {
+				// Edit sync для crosspost-каналов отключён
+				if _, _, cpOk := b.repo.GetCrosspostMaxChat(tgChatID); cpOk {
 					continue
 				}
 				prefix := b.repo.HasPrefix("max", editUpd.Message.Recipient.ChatId)

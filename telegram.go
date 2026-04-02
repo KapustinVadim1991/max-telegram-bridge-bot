@@ -1133,32 +1133,6 @@ func parseTgCrosspostTitle(text string) string {
 }
 
 // handleTgEditedChannelPost обрабатывает редактирования постов в TG-каналах.
+// Edit sync для crosspost-каналов отключён.
 func (b *Bridge) handleTgEditedChannelPost(ctx context.Context, edited *TGMessage) {
-	maxMsgID, ok := b.repo.LookupMaxMsgID(edited.Chat.ID, edited.MessageID)
-	if !ok {
-		return
-	}
-
-	maxChatID, direction, linked := b.repo.GetCrosspostMaxChat(edited.Chat.ID)
-	if !linked {
-		return
-	}
-	if direction == "max>tg" {
-		return
-	}
-
-	text := edited.Text
-	if text == "" {
-		text = edited.Caption
-	}
-	if text == "" {
-		return
-	}
-
-	m := maxbot.NewMessage().SetChat(maxChatID).SetText(text)
-	if err := b.maxApi.Messages.EditMessage(ctx, maxMsgID, m); err != nil {
-		slog.Error("TG→MAX crosspost edit failed", "err", err)
-	} else {
-		slog.Info("TG→MAX crosspost edited", "mid", maxMsgID)
-	}
 }
