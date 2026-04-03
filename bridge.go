@@ -46,8 +46,9 @@ const (
 type Bridge struct {
 	cfg        Config
 	repo       Repository
-	tg         TGSender
-	maxApi     *maxbot.Api
+	tg          TGSender
+	maxApi      *maxbot.Api
+	maxBotUID   int64 // MAX bot user ID (для фильтрации своих сообщений)
 	httpClient *http.Client // для скачивания/загрузки файлов (большой таймаут)
 	apiClient  *http.Client // для коротких API-запросов (малый таймаут)
 	whSecret   string // random path segment for webhook URLs
@@ -67,7 +68,7 @@ type Bridge struct {
 }
 
 // NewBridge создаёт экземпляр Bridge.
-func NewBridge(cfg Config, repo Repository, tg TGSender, maxApi *maxbot.Api) *Bridge {
+func NewBridge(cfg Config, repo Repository, tg TGSender, maxApi *maxbot.Api, maxBotUID int64) *Bridge {
 	// Derive webhook secret from tokens (stable across restarts)
 	h := sha256.Sum256([]byte(cfg.MaxToken + tg.BotToken()))
 	secret := hex.EncodeToString(h[:8])
@@ -75,8 +76,9 @@ func NewBridge(cfg Config, repo Repository, tg TGSender, maxApi *maxbot.Api) *Br
 	return &Bridge{
 		cfg:    cfg,
 		repo:   repo,
-		tg:     tg,
-		maxApi: maxApi,
+		tg:        tg,
+		maxApi:    maxApi,
+		maxBotUID: maxBotUID,
 		httpClient: &http.Client{
 			Timeout: 5 * time.Minute, // для download/upload больших файлов
 		},
@@ -194,6 +196,11 @@ func (b *Bridge) tgChatTitle(ctx context.Context, chatID int64) string {
 		return ""
 	}
 	return title
+}
+
+// isSelfTgBot проверяет, является ли отправитель нашим ботом (а не чужим).
+func (b *Bridge) isSelfTgBot(from *UserInfo) bool {
+	return from != nil && from.IsBot && from.UserName == b.tg.BotUsername()
 }
 
 func (b *Bridge) tgWebhookPath() string {

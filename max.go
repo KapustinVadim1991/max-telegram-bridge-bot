@@ -70,7 +70,7 @@ func (b *Bridge) listenMax(ctx context.Context) {
 
 			// Обработка edit
 			if editUpd, isEdit := upd.(*maxschemes.MessageEditedUpdate); isEdit {
-				if editUpd.Message.Sender.IsBot {
+				if editUpd.Message.Sender.UserId == b.maxBotUID {
 					continue
 				}
 				mid := editUpd.Message.Body.Mid
@@ -462,7 +462,7 @@ func (b *Bridge) listenMax(ctx context.Context) {
 
 			// Пересылка (bridge)
 			tgChatID, linked := b.repo.GetTgChat(chatID)
-			if linked && !msgUpd.Message.Sender.IsBot {
+			if linked && msgUpd.Message.Sender.UserId != b.maxBotUID {
 				// Anti-loop
 				if !strings.HasPrefix(text, "[TG]") && !strings.HasPrefix(text, "[MAX]") {
 					prefix := b.repo.HasPrefix("max", chatID)
@@ -473,7 +473,7 @@ func (b *Bridge) listenMax(ctx context.Context) {
 			}
 
 			// Пересылка (crosspost fallback)
-			if msgUpd.Message.Sender.IsBot {
+			if msgUpd.Message.Sender.UserId == b.maxBotUID {
 				continue
 			}
 			tgChatID, direction, cpLinked := b.repo.GetCrosspostTgChat(chatID)

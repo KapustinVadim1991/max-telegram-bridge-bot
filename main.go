@@ -168,7 +168,7 @@ func main() {
 		cancel()
 	}()
 
-	bridge := NewBridge(cfg, repo, tg, maxApi)
+	bridge := NewBridge(cfg, repo, tg, maxApi, maxInfo.UserId)
 	bridge.Run(ctx)
 	slog.Info("Bridge stopped")
 }

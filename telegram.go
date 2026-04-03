@@ -55,7 +55,7 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 			// Обработка edit
 			if update.EditedMessage != nil {
 				edited := update.EditedMessage
-				if edited.From != nil && edited.From.IsBot {
+				if b.isSelfTgBot(edited.From) {
 					continue
 				}
 				maxChatID, linked := b.repo.GetMaxChat(edited.Chat.ID)
@@ -373,7 +373,7 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 			if !linked {
 				continue
 			}
-			if msg.From != nil && msg.From.IsBot {
+			if b.isSelfTgBot(msg.From) {
 				continue
 			}
 
