@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://maxtelegrambridge.ru/favicon.svg" width="80" height="80" alt="Bridge Bot">
+  <img src="https://maxtelegrambridge.ru/favicon.svg?v=2" width="80" height="80" alt="Bridge Bot">
 </p>
 
 # MaxTelegramBridgeBot
