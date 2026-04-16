@@ -342,6 +342,14 @@ func (r *sqliteRepo) IncrementAttempt(id int64, nextRetry int64) error {
 	return err
 }
 
+func (r *sqliteRepo) HasPendingQueue(direction string, dstChatID int64) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var count int
+	r.db.QueryRow("SELECT COUNT(*) FROM send_queue WHERE direction = ? AND dst_chat_id = ?", direction, dstChatID).Scan(&count)
+	return count > 0
+}
+
 func (r *sqliteRepo) Close() error {
 	return r.db.Close()
 }

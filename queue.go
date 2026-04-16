@@ -29,6 +29,12 @@ func retryDelay(attempt int) time.Duration {
 	}
 }
 
+// hasPendingForChat возвращает true если в очереди уже есть сообщения для данного dst-чата.
+// В этом случае новое сообщение тоже нужно ставить в очередь, чтобы не нарушить порядок.
+func (b *Bridge) hasPendingForChat(direction string, dstChatID int64) bool {
+	return b.repo.HasPendingQueue(direction, dstChatID)
+}
+
 // enqueueTg2Max ставит сообщение TG→MAX в очередь.
 func (b *Bridge) enqueueTg2Max(tgChatID int64, tgMsgID int, maxChatID int64, text, attType, attToken, replyTo, format string) {
 	now := time.Now().Unix()

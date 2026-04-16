@@ -95,27 +95,26 @@ func (b *Bridge) listenMax(ctx context.Context) {
 					continue
 				}
 
-				// Конвертируем markups в HTML если есть
+				// Конвертируем в HTML (всегда, для жирного имени автора)
 				var fwd string
 				var editParseMode string
-				if len(editUpd.Message.Body.Markups) > 0 {
-					htmlText := maxMarkupsToHTML(text, editUpd.Message.Body.Markups)
+				{
+					var htmlText string
+					if len(editUpd.Message.Body.Markups) > 0 {
+						htmlText = maxMarkupsToHTML(text, editUpd.Message.Body.Markups)
+					} else {
+						htmlText = html.EscapeString(text)
+					}
 					escapedName := html.EscapeString(name)
 					if prefix {
 						escapedName = "[MAX] " + escapedName
 					}
 					if b.cfg.MessageNewline {
-						fwd = escapedName + ":\n" + htmlText
+						fwd = "<b>" + escapedName + "</b>:\n" + htmlText
 					} else {
-						fwd = escapedName + ": " + htmlText
+						fwd = "<b>" + escapedName + "</b>: " + htmlText
 					}
 					editParseMode = "HTML"
-				} else {
-					if prefix {
-						fwd = formatAttribution("[MAX] "+name, text, b.cfg.MessageNewline)
-					} else {
-						fwd = formatAttribution(name, text, b.cfg.MessageNewline)
-					}
 				}
 
 				// Проверяем вложения в edit — если есть медиа, используем editMessageMedia
@@ -932,25 +931,32 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 	mediaSent := false
 	var qAttType, qAttURL string // для очереди при ошибке
 
-	// Определяем HTML caption если есть markups
+	// Определяем HTML caption: всегда для bridge-режима (жирное имя) и при наличии markups
 	htmlCaption := caption
-	useHTML := len(body.Markups) > 0
+	hasMarkups := len(body.Markups) > 0
+	hasAttribution := caption != text // bridge-режим (не кросспостинг)
+	useHTML := hasMarkups || hasAttribution
 	if useHTML {
-		htmlText := maxMarkupsToHTML(text, body.Markups)
-		if caption == text {
+		var htmlText string
+		if hasMarkups {
+			htmlText = maxMarkupsToHTML(text, body.Markups)
+		} else {
+			htmlText = html.EscapeString(text)
+		}
+		if !hasAttribution {
 			// Кросспостинг: caption = сырой текст, без атрибуции
 			htmlCaption = htmlText
 		} else {
-			// Bridge: caption с атрибуцией — конвертируем текст отдельно, потом строим атрибуцию
+			// Bridge: caption с атрибуцией — жирное имя
 			name := maxName(msgUpd)
 			if b.repo.HasPrefix("max", msgUpd.Message.Recipient.ChatId) {
 				name = "[MAX] " + name
 			}
 			escapedName := html.EscapeString(name)
 			if b.cfg.MessageNewline {
-				htmlCaption = escapedName + ":\n" + htmlText
+				htmlCaption = "<b>" + escapedName + "</b>:\n" + htmlText
 			} else {
-				htmlCaption = escapedName + ": " + htmlText
+				htmlCaption = "<b>" + escapedName + "</b>: " + htmlText
 			}
 		}
 	}
@@ -1021,6 +1027,14 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 		}
 	}
 
+	// Если для этого чата уже есть сообщения в очереди — не отправляем напрямую,
+	// чтобы не нарушить порядок доставки. Сразу ставим в очередь.
+	if b.hasPendingForChat("max2tg", tgChatID) {
+		slog.Info("MAX→TG queued (pending exists)", "uid", msgUpd.Message.Sender.UserId, "maxChat", chatID, "tgChat", tgChatID)
+		b.enqueueMax2Tg(chatID, tgChatID, body.Mid, htmlCaption, qAttType, qAttURL, pm)
+		return
+	}
+
 	// Отправляем фото/видео как альбом (если их несколько — grouped, иначе — single)
 	if len(albumMedia) > 0 {
 		mediaSent = true
@@ -1049,7 +1063,7 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 			if err != nil {
 				slog.Error("MAX→TG album send failed", "err", err)
 				sendErr = err
-				m := maxbot.NewMessage().SetChat(chatID).SetText("Не удалось отправить медиаальбом в Telegram.")
+				m := maxbot.NewMessage().SetChat(chatID).SetText("Не удалось отправить медиаальбом.")
 				b.maxApi.Messages.Send(ctx, m)
 			} else if len(msgIDs) > 0 {
 				sentMsgID = msgIDs[0]
@@ -1080,7 +1094,7 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 			} else {
 				slog.Error("MAX→TG solo media send failed", "type", sm.attType, "err", err)
 				m := maxbot.NewMessage().SetChat(chatID).SetText(
-					fmt.Sprintf("Не удалось отправить файл \"%s\" в Telegram.", sm.name))
+					fmt.Sprintf("Не удалось отправить файл \"%s\".", sm.name))
 				b.maxApi.Messages.Send(ctx, m)
 			}
 			if sendErr == nil {
@@ -1132,7 +1146,7 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 		// TOPIC_CLOSED — General топик закрыт, уведомляем и не ретраим
 		if strings.Contains(errStr, "TOPIC_CLOSED") {
 			m := maxbot.NewMessage().SetChat(chatID).SetText(
-				"Не удалось переслать в Telegram: основной топик (General) закрыт.\nОткройте General в настройках TG-группы или сделайте бота админом.")
+				"Не удалось переслать сообщение: основной топик (General) закрыт.\nОткройте General в настройках группы или сделайте бота админом.")
 			b.maxApi.Messages.Send(ctx, m)
 			return
 		}
@@ -1153,7 +1167,7 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 		}
 		var eTooLarge *ErrFileTooLarge
 		if !errors.As(sendErr, &eTooLarge) {
-			notifyText := "Не удалось переслать сообщение в Telegram. Попробуем ещё раз автоматически."
+			notifyText := "Не удалось переслать сообщение. Попробуем ещё раз автоматически."
 			if b.cbBlocked(tgChatID) {
 				notifyText = "TG API недоступен. Сообщения в очереди, будут доставлены автоматически."
 			}

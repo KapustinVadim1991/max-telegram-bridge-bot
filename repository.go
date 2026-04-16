@@ -68,6 +68,10 @@ type Repository interface {
 	PeekQueue(limit int) ([]QueueItem, error)
 	DeleteFromQueue(id int64) error
 	IncrementAttempt(id int64, nextRetry int64) error
+	// HasPendingQueue возвращает true если для данного dst-чата есть незавершённые элементы.
+	// Используется для сохранения порядка: новые сообщения тоже идут через очередь,
+	// пока предыдущие не доставлены.
+	HasPendingQueue(direction string, dstChatID int64) bool
 
 	Close() error
 }

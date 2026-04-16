@@ -28,6 +28,15 @@ func formatAttribution(name, text string, newline bool) string {
 	return name + ": " + text
 }
 
+// formatAttributionMD собирает строку с жирным именем в markdown: "**Имя**: текст".
+func formatAttributionMD(name, text string, newline bool) string {
+	bold := "**" + name + "**"
+	if newline {
+		return bold + ":\n" + text
+	}
+	return bold + ": " + text
+}
+
 // formatTgCaption — для пересылки (текст или caption)
 func formatTgCaption(msg *TGMessage, prefix, newline bool) string {
 	name := tgName(msg)

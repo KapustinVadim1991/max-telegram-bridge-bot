@@ -104,11 +104,9 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 				if prefix {
 					name = "[TG] " + name
 				}
-				fwd := formatAttribution(name, mdText, b.cfg.MessageNewline)
+				fwd := formatAttributionMD(name, mdText, b.cfg.MessageNewline)
 				m := maxbot.NewMessage().SetChat(maxChatID).SetText(fwd)
-				if mdText != rawText {
-					m.SetFormat("markdown")
-				}
+				m.SetFormat("markdown")
 				if err := b.maxApi.Messages.EditMessage(ctx, maxMsgID, m); err != nil {
 					slog.Error("TG→MAX edit failed", "err", err, "uid", tgUserID(edited), "tgChat", edited.Chat.ID)
 				} else {
@@ -487,11 +485,9 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 		if b.repo.HasPrefix("tg", msg.Chat.ID) {
 			name = "[TG] " + name
 		}
-		mdCaption := formatAttribution(name, mdText, b.cfg.MessageNewline)
+		mdCaption := formatAttributionMD(name, mdText, b.cfg.MessageNewline)
 		m := maxbot.NewMessage().SetChat(maxChatID).SetText(mdCaption)
-		if mdText != rawText {
-			m.SetFormat("markdown")
-		}
+		m.SetFormat("markdown")
 		if b.cfg.TgAPIURL != "" {
 			// Custom TG API — MAX не может скачать по URL, скачиваем и загружаем через reader
 			if uploaded, err := b.uploadTgPhotoToMax(ctx, photo.FileID); err == nil {
@@ -717,7 +713,6 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 		entities = msg.CaptionEntities
 	}
 	mdText := tgEntitiesToMarkdown(rawText, entities)
-	hasFormatting := mdText != rawText
 
 	// Fallback для неудавшейся загрузки медиа
 	if mediaAttType == "" && msg.Text == "" {
@@ -753,25 +748,25 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 	if b.repo.HasPrefix("tg", msg.Chat.ID) {
 		name = "[TG] " + name
 	}
-	mdCaption := formatAttribution(name, mdText, b.cfg.MessageNewline)
+	mdCaption := formatAttributionMD(name, mdText, b.cfg.MessageNewline)
+
+	// Если для этого чата уже есть сообщения в очереди — не отправляем напрямую,
+	// чтобы не нарушить порядок. Сразу ставим в очередь.
+	if b.hasPendingForChat("tg2max", maxChatID) {
+		slog.Info("TG→MAX queued (pending exists)", "uid", uid, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
+		b.enqueueTg2Max(msg.Chat.ID, msg.MessageID, maxChatID, mdCaption, mediaAttType, mediaToken, replyTo, "markdown")
+		return
+	}
 
 	var mid string
 	var sendErr error
 
 	if mediaAttType != "" {
 		slog.Info("TG→MAX sending direct", "type", mediaAttType, "uid", uid, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
-		var format string
-		if hasFormatting {
-			format = "markdown"
-		}
-		mid, sendErr = b.sendMaxDirectFormatted(ctx, maxChatID, mdCaption, mediaAttType, mediaToken, replyTo, format)
+		mid, sendErr = b.sendMaxDirectFormatted(ctx, maxChatID, mdCaption, mediaAttType, mediaToken, replyTo, "markdown")
 	} else {
-		var format string
-		if hasFormatting {
-			format = "markdown"
-		}
 		slog.Info("TG→MAX sending", "uid", uid, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
-		mid, sendErr = b.sendMaxDirectFormatted(ctx, maxChatID, mdCaption, "", "", replyTo, format)
+		mid, sendErr = b.sendMaxDirectFormatted(ctx, maxChatID, mdCaption, "", "", replyTo, "markdown")
 	}
 
 	if sendErr != nil {
@@ -779,11 +774,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 		slog.Error("TG→MAX send failed", "err", errStr, "uid", uid, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
 		// 403/404 — permanent error, не ретраим
 		if !strings.Contains(errStr, "403") && !strings.Contains(errStr, "404") && !strings.Contains(errStr, "chat.denied") {
-			var format string
-			if hasFormatting {
-				format = "markdown"
-			}
-			b.enqueueTg2Max(msg.Chat.ID, msg.MessageID, maxChatID, mdCaption, mediaAttType, mediaToken, replyTo, format)
+			b.enqueueTg2Max(msg.Chat.ID, msg.MessageID, maxChatID, mdCaption, mediaAttType, mediaToken, replyTo, "markdown")
 		}
 		if b.cbFail(maxChatID) {
 			b.tg.SendMessage(ctx, msg.Chat.ID,
@@ -813,11 +804,9 @@ func (b *Bridge) editTgMediaInMax(ctx context.Context, msg *TGMessage, maxChatID
 	if b.repo.HasPrefix("tg", msg.Chat.ID) {
 		name = "[TG] " + name
 	}
-	mdCaption := formatAttribution(name, mdText, b.cfg.MessageNewline)
+	mdCaption := formatAttributionMD(name, mdText, b.cfg.MessageNewline)
 	m.SetText(mdCaption)
-	if mdText != rawText {
-		m.SetFormat("markdown")
-	}
+	m.SetFormat("markdown")
 
 	if msg.Photo != nil {
 		photo := msg.Photo[len(msg.Photo)-1]

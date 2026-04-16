@@ -336,6 +336,12 @@ func (r *pgRepo) IncrementAttempt(id int64, nextRetry int64) error {
 	return err
 }
 
+func (r *pgRepo) HasPendingQueue(direction string, dstChatID int64) bool {
+	var count int
+	r.db.QueryRow("SELECT COUNT(*) FROM send_queue WHERE direction = $1 AND dst_chat_id = $2", direction, dstChatID).Scan(&count)
+	return count > 0
+}
+
 func (r *pgRepo) Close() error {
 	return r.db.Close()
 }
