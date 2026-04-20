@@ -289,10 +289,15 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 			// Проверка прав админа в группах
 			isGroup := isTgGroup(msg.Chat.Type)
 			isAdmin := false
-			if isGroup && msg.From != nil {
-				status, err := b.tg.GetChatMember(ctx, msg.Chat.ID, msg.From.ID)
-				if err == nil {
-					isAdmin = isTgAdmin(status)
+			if isGroup {
+				if isTgAnonymousAdmin(msg) {
+					// Владелец/админ с "Remain anonymous" — шлёт от имени группы
+					isAdmin = true
+				} else if msg.From != nil {
+					status, err := b.tg.GetChatMember(ctx, msg.Chat.ID, msg.From.ID)
+					if err == nil {
+						isAdmin = isTgAdmin(status)
+					}
 				}
 			}
 

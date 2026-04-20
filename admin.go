@@ -17,6 +17,16 @@ func isTgAdmin(memberStatus string) bool {
 	return memberStatus == "creator" || memberStatus == "administrator"
 }
 
+// isTgAnonymousAdmin returns true if the message was sent by an anonymous admin
+// (owner/admin with "Remain anonymous" enabled). In this case msg.From is
+// @GroupAnonymousBot and msg.SenderChat is the group itself.
+func isTgAnonymousAdmin(msg *TGMessage) bool {
+	if msg == nil || msg.SenderChat == nil {
+		return false
+	}
+	return msg.SenderChat.ID == msg.Chat.ID
+}
+
 // isMaxGroup returns true if the MAX chat type indicates a group.
 func isMaxGroup(chatType maxschemes.ChatType) bool {
 	return chatType == maxschemes.CHAT || chatType == maxschemes.CHANNEL

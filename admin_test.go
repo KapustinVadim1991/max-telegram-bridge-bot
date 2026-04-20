@@ -50,6 +50,27 @@ func TestIsTgAdmin(t *testing.T) {
 	}
 }
 
+func TestIsTgAnonymousAdmin(t *testing.T) {
+	chat := ChatInfo{ID: -100123, Type: "supergroup"}
+	tests := []struct {
+		name string
+		msg  *TGMessage
+		want bool
+	}{
+		{"nil", nil, false},
+		{"no sender chat", &TGMessage{Chat: chat}, false},
+		{"different sender chat", &TGMessage{Chat: chat, SenderChat: &ChatInfo{ID: -999}}, false},
+		{"same sender chat (anonymous)", &TGMessage{Chat: chat, SenderChat: &ChatInfo{ID: chat.ID}}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isTgAnonymousAdmin(tt.msg); got != tt.want {
+				t.Errorf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsMaxGroup(t *testing.T) {
 	tests := []struct {
 		name     string
