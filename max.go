@@ -240,9 +240,13 @@ func (b *Bridge) listenMax(ctx context.Context) {
 						"Как связать группы:\n" +
 						"1. Добавьте бота в оба чата\n" +
 						"   MAX: " + b.cfg.MaxBotURL + "\n" +
-						"2. В одном из чатов отправьте /bridge\n" +
-						"3. Бот выдаст ключ — отправьте его в другом чате\n" +
-						"4. Готово!\n\n" +
+						"   TG: " + b.cfg.TgBotURL + "\n" +
+						"2. В MAX сделайте бота админом группы\n" +
+						"3. В TG сделайте бота админом, если группа — супергруппа с темами (форум). " +
+						"В обычных группах админство не требуется.\n" +
+						"4. В одном из чатов отправьте /bridge\n" +
+						"5. Бот выдаст ключ — отправьте его в другом чате (в группе, не в ЛС бота)\n" +
+						"6. Готово!\n\n" +
 						"Поддержка: https://github.com/BEARlogin/max-telegram-bridge-bot/issues")
 				b.maxApi.Messages.Send(ctx, m)
 				continue
@@ -303,7 +307,7 @@ func (b *Bridge) listenMax(ctx context.Context) {
 					slog.Info("paired", "platform", "max", "chat", chatID, "key", key)
 				} else if generatedKey != "" {
 					m := maxbot.NewMessage().SetChat(chatID).
-						SetText(fmt.Sprintf("Ключ для связки: %s\n\nОтправьте в Telegram-чате:\n/bridge %s\n\nTG-бот: %s", generatedKey, generatedKey, b.cfg.TgBotURL))
+						SetText(fmt.Sprintf("Ключ для связки: %s\n\nДобавьте TG-бота в нужную Telegram-группу и отправьте в ней (не в ЛС бота):\n/bridge %s\n\nСсылка на TG-бота (для добавления в группу): %s", generatedKey, generatedKey, b.cfg.TgBotURL))
 					b.maxApi.Messages.Send(ctx, m)
 					slog.Info("pending", "platform", "max", "chat", chatID, "key", generatedKey)
 				} else {

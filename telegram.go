@@ -190,9 +190,11 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 						"   TG: "+b.cfg.TgBotURL+"\n"+
 						"   MAX: "+b.cfg.MaxBotURL+"\n"+
 						"2. В MAX сделайте бота админом группы\n"+
-						"3. В одном из чатов отправьте /bridge\n"+
-						"4. Бот выдаст ключ — отправьте /bridge <ключ> в другом чате\n"+
-						"5. Готово!\n\n"+
+						"3. В TG сделайте бота админом, если группа — супергруппа с темами (форум). "+
+						"В обычных группах админство не требуется.\n"+
+						"4. В одном из чатов отправьте /bridge\n"+
+						"5. Бот выдаст ключ — отправьте /bridge <ключ> в другом чате\n"+
+						"6. Готово!\n\n"+
 						"Поддержка: https://github.com/BEARlogin/max-telegram-bridge-bot/issues", &SendOpts{ThreadID: msg.MessageThreadID})
 				continue
 			}
@@ -289,16 +291,27 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 			// Проверка прав админа в группах
 			isGroup := isTgGroup(msg.Chat.Type)
 			isAdmin := false
+			botNotAdmin := false
 			if isGroup {
 				if isTgAnonymousAdmin(msg) {
 					// Владелец/админ с "Remain anonymous" — шлёт от имени группы
 					isAdmin = true
 				} else if msg.From != nil {
 					status, err := b.tg.GetChatMember(ctx, msg.Chat.ID, msg.From.ID)
-					if err == nil {
+					if err != nil {
+						slog.Warn("TG getChatMember failed", "err", err, "chat", msg.Chat.ID, "user", msg.From.ID, "chatType", msg.Chat.Type)
+						if strings.Contains(err.Error(), "CHAT_ADMIN_REQUIRED") {
+							botNotAdmin = true
+						}
+					} else {
+						slog.Debug("TG getChatMember ok", "chat", msg.Chat.ID, "user", msg.From.ID, "status", status)
 						isAdmin = isTgAdmin(status)
 					}
 				}
+			}
+			adminDeniedText := "Эта команда доступна только админам группы."
+			if botNotAdmin {
+				adminDeniedText = "Бот не может проверить ваши права — сделайте бота админом группы и повторите команду."
 			}
 
 			// /thread — установить/сбросить топик по умолчанию
@@ -307,7 +320,7 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 					continue
 				}
 				if isGroup && !isAdmin {
-					b.tg.SendMessage(ctx, msg.Chat.ID, "Эта команда доступна только админам группы.", &SendOpts{ThreadID: msg.MessageThreadID})
+					b.tg.SendMessage(ctx, msg.Chat.ID, adminDeniedText, &SendOpts{ThreadID: msg.MessageThreadID})
 					continue
 				}
 				if _, ok := b.repo.GetMaxChat(msg.Chat.ID); !ok {
@@ -333,7 +346,7 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 					continue
 				}
 				if isGroup && !isAdmin {
-					b.tg.SendMessage(ctx, msg.Chat.ID, "Эта команда доступна только админам группы.", &SendOpts{ThreadID: msg.MessageThreadID})
+					b.tg.SendMessage(ctx, msg.Chat.ID, adminDeniedText, &SendOpts{ThreadID: msg.MessageThreadID})
 					continue
 				}
 				on := text == "/bridge prefix on"
@@ -351,11 +364,12 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 
 			// /bridge или /bridge <key>
 			if text == "/bridge" || strings.HasPrefix(text, "/bridge ") {
+				slog.Info("TG /bridge command", "chat", msg.Chat.ID, "chatType", msg.Chat.Type, "chatTitle", msg.Chat.Title, "user", tgUserID(msg), "isGroup", isGroup, "isAdmin", isAdmin, "text", text)
 				if !b.checkUserAllowed(ctx, msg.Chat.ID, tgUserID(msg), msg.MessageThreadID) {
 					continue
 				}
 				if isGroup && !isAdmin {
-					b.tg.SendMessage(ctx, msg.Chat.ID, "Эта команда доступна только админам группы.", &SendOpts{ThreadID: msg.MessageThreadID})
+					b.tg.SendMessage(ctx, msg.Chat.ID, adminDeniedText, &SendOpts{ThreadID: msg.MessageThreadID})
 					continue
 				}
 				key := strings.TrimSpace(strings.TrimPrefix(text, "/bridge"))
@@ -371,7 +385,7 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 					slog.Info("paired", "platform", "tg", "chat", msg.Chat.ID, "key", key)
 				} else if generatedKey != "" {
 					b.tg.SendMessage(ctx, msg.Chat.ID,
-						fmt.Sprintf("Ключ для связки: <code>%s</code>\n\nОтправьте в MAX-чате:\n<code>/bridge %s</code>\n\nMAX-бот: %s", generatedKey, generatedKey, b.cfg.MaxBotURL),
+						fmt.Sprintf("Ключ для связки: <code>%s</code>\n\nДобавьте MAX-бота в нужную MAX-группу и отправьте <b>в ней</b> (не в ЛС бота):\n<code>/bridge %s</code>\n\nСсылка на MAX-бота (для добавления в группу): %s", generatedKey, generatedKey, b.cfg.MaxBotURL),
 						&SendOpts{ParseMode: "HTML", ThreadID: msg.MessageThreadID})
 					slog.Info("pending", "platform", "tg", "chat", msg.Chat.ID, "key", generatedKey)
 				} else {
@@ -382,7 +396,7 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 
 			if text == "/unbridge" {
 				if isGroup && !isAdmin {
-					b.tg.SendMessage(ctx, msg.Chat.ID, "Эта команда доступна только админам группы.", &SendOpts{ThreadID: msg.MessageThreadID})
+					b.tg.SendMessage(ctx, msg.Chat.ID, adminDeniedText, &SendOpts{ThreadID: msg.MessageThreadID})
 					continue
 				}
 				if !b.checkUserAllowed(ctx, msg.Chat.ID, tgUserID(msg), msg.MessageThreadID) {
