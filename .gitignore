@@ -16,3 +16,8 @@ backup.sh
 backup-cleanup.sh
 bearlogin-bridge
 bridge.db.bak
+
+# Local tools
+.omc/
+broadcast.sh
+broadcast_*.html

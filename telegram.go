@@ -72,7 +72,7 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 				if hasMedia && !hasMapping {
 					prefix := b.repo.HasPrefix("tg", edited.Chat.ID)
 					caption := formatTgCaption(edited, prefix, b.cfg.MessageNewline)
-					go b.forwardTgToMax(ctx, edited, maxChatID, caption)
+					go b.forwardTgToMax(ctx, edited, maxChatID, caption, false)
 					continue
 				}
 
@@ -429,7 +429,7 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 				continue
 			}
 
-			go b.forwardTgToMax(ctx, msg, maxChatID, caption)
+			go b.forwardTgToMax(ctx, msg, maxChatID, caption, false)
 		}
 	}
 }
@@ -442,7 +442,8 @@ func tgUserID(msg *TGMessage) int64 {
 }
 
 // forwardTgToMax пересылает TG-сообщение (текст/медиа) в MAX-чат.
-func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID int64, caption string) {
+// Если isCrosspost=true, caption используется как финальный текст (с заменами, без атрибуции).
+func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID int64, caption string, isCrosspost bool) {
 	if b.cbBlocked(maxChatID) {
 		return
 	}
@@ -476,18 +477,26 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 			return
 		}
 		// Конвертируем entities в markdown на сыром тексте (до атрибуции, иначе офсеты съезжают)
-		rawText := msg.Caption
-		if rawText == "" {
-			rawText = msg.Text
+		var mdCaption string
+		if isCrosspost {
+			// Кросспостинг: caption уже содержит замены, без атрибуции
+			mdCaption = caption
+		} else {
+			rawText := msg.Caption
+			if rawText == "" {
+				rawText = msg.Text
+			}
+			mdText := tgEntitiesToMarkdown(rawText, msg.CaptionEntities)
+			name := tgName(msg)
+			if b.repo.HasPrefix("tg", msg.Chat.ID) {
+				name = "[TG] " + name
+			}
+			mdCaption = formatAttributionMD(name, mdText, b.cfg.MessageNewline)
 		}
-		mdText := tgEntitiesToMarkdown(rawText, msg.CaptionEntities)
-		name := tgName(msg)
-		if b.repo.HasPrefix("tg", msg.Chat.ID) {
-			name = "[TG] " + name
-		}
-		mdCaption := formatAttributionMD(name, mdText, b.cfg.MessageNewline)
 		m := maxbot.NewMessage().SetChat(maxChatID).SetText(mdCaption)
-		m.SetFormat("markdown")
+		if !isCrosspost {
+			m.SetFormat("markdown")
+		}
 		if b.cfg.TgAPIURL != "" {
 			// Custom TG API — MAX не может скачать по URL, скачиваем и загружаем через reader
 			if uploaded, err := b.uploadTgPhotoToMax(ctx, photo.FileID); err == nil {
@@ -705,14 +714,20 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 		}
 	}
 
-	// Конвертируем TG entities в markdown на сыром тексте (до атрибуции, иначе офсеты съезжают)
-	rawText := msg.Text
-	entities := msg.Entities
-	if rawText == "" {
-		rawText = msg.Caption
-		entities = msg.CaptionEntities
+	// Формируем текст: для crosspost берём caption как есть (с заменами, без атрибуции),
+	// для bridge — конвертируем entities на сыром тексте, потом добавляем атрибуцию
+	var mdText string
+	if isCrosspost {
+		mdText = caption
+	} else {
+		rawText := msg.Text
+		entities := msg.Entities
+		if rawText == "" {
+			rawText = msg.Caption
+			entities = msg.CaptionEntities
+		}
+		mdText = tgEntitiesToMarkdown(rawText, entities)
 	}
-	mdText := tgEntitiesToMarkdown(rawText, entities)
 
 	// Fallback для неудавшейся загрузки медиа
 	if mediaAttType == "" && msg.Text == "" {
@@ -744,17 +759,27 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 		}
 	}
 
-	name := tgName(msg)
-	if b.repo.HasPrefix("tg", msg.Chat.ID) {
-		name = "[TG] " + name
+	var mdCaption string
+	if isCrosspost {
+		mdCaption = mdText
+	} else {
+		name := tgName(msg)
+		if b.repo.HasPrefix("tg", msg.Chat.ID) {
+			name = "[TG] " + name
+		}
+		mdCaption = formatAttributionMD(name, mdText, b.cfg.MessageNewline)
 	}
-	mdCaption := formatAttributionMD(name, mdText, b.cfg.MessageNewline)
 
 	// Если для этого чата уже есть сообщения в очереди — не отправляем напрямую,
 	// чтобы не нарушить порядок. Сразу ставим в очередь.
+	format := "markdown"
+	if isCrosspost {
+		format = ""
+	}
+
 	if b.hasPendingForChat("tg2max", maxChatID) {
 		slog.Info("TG→MAX queued (pending exists)", "uid", uid, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
-		b.enqueueTg2Max(msg.Chat.ID, msg.MessageID, maxChatID, mdCaption, mediaAttType, mediaToken, replyTo, "markdown")
+		b.enqueueTg2Max(msg.Chat.ID, msg.MessageID, maxChatID, mdCaption, mediaAttType, mediaToken, replyTo, format)
 		return
 	}
 
@@ -763,10 +788,10 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 
 	if mediaAttType != "" {
 		slog.Info("TG→MAX sending direct", "type", mediaAttType, "uid", uid, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
-		mid, sendErr = b.sendMaxDirectFormatted(ctx, maxChatID, mdCaption, mediaAttType, mediaToken, replyTo, "markdown")
+		mid, sendErr = b.sendMaxDirectFormatted(ctx, maxChatID, mdCaption, mediaAttType, mediaToken, replyTo, format)
 	} else {
 		slog.Info("TG→MAX sending", "uid", uid, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
-		mid, sendErr = b.sendMaxDirectFormatted(ctx, maxChatID, mdCaption, "", "", replyTo, "markdown")
+		mid, sendErr = b.sendMaxDirectFormatted(ctx, maxChatID, mdCaption, "", "", replyTo, format)
 	}
 
 	if sendErr != nil {
@@ -774,7 +799,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 		slog.Error("TG→MAX send failed", "err", errStr, "uid", uid, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
 		// 403/404 — permanent error, не ретраим
 		if !strings.Contains(errStr, "403") && !strings.Contains(errStr, "404") && !strings.Contains(errStr, "chat.denied") {
-			b.enqueueTg2Max(msg.Chat.ID, msg.MessageID, maxChatID, mdCaption, mediaAttType, mediaToken, replyTo, "markdown")
+			b.enqueueTg2Max(msg.Chat.ID, msg.MessageID, maxChatID, mdCaption, mediaAttType, mediaToken, replyTo, format)
 		}
 		if b.cbFail(maxChatID) {
 			b.tg.SendMessage(ctx, msg.Chat.ID,
@@ -887,7 +912,7 @@ func (b *Bridge) handleTgChannelPost(ctx context.Context, msg *TGMessage) {
 		return
 	}
 
-	go b.forwardTgToMax(ctx, msg, maxChatID, caption)
+	go b.forwardTgToMax(ctx, msg, maxChatID, caption, true)
 }
 
 // handleTgCallback обрабатывает нажатия inline-кнопок (crosspost management).

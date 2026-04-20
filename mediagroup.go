@@ -195,10 +195,15 @@ func (b *Bridge) flushMediaGroup(ctx context.Context, groupID string) {
 				var cap string
 				if isCrosspost {
 					cap = formatTgCrosspostCaption(it.msg)
+					// Применяем замены для TG→MAX
+					repl := b.repo.GetCrosspostReplacements(maxChatID)
+					if len(repl.TgToMax) > 0 {
+						cap = applyReplacements(cap, repl.TgToMax)
+					}
 				} else {
 					cap = formatTgCaption(it.msg, prefix, b.cfg.MessageNewline)
 				}
-				go b.forwardTgToMax(ctx, it.msg, maxChatID, cap)
+				go b.forwardTgToMax(ctx, it.msg, maxChatID, cap, isCrosspost)
 			}
 			return
 		}
