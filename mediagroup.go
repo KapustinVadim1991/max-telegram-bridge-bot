@@ -130,12 +130,14 @@ func (b *Bridge) flushMediaGroup(ctx context.Context, groupID string) {
 
 	// Загружаем и добавляем все фото
 	photosSent := 0
+	var photoFailErr error
 	for _, it := range items {
 		if len(it.photoSizes) > 0 {
 			photo := it.photoSizes[len(it.photoSizes)-1]
 			fileURL, err := b.tgFileURL(ctx, photo.FileID)
 			if err != nil {
 				slog.Error("media group: tgFileURL failed", "err", err)
+				photoFailErr = err
 				continue
 			}
 			// Если custom TG API — MAX не может скачать по URL, скачиваем сами
@@ -143,6 +145,7 @@ func (b *Bridge) flushMediaGroup(ctx context.Context, groupID string) {
 				uploaded, err := b.uploadTgPhotoToMax(ctx, photo.FileID)
 				if err != nil {
 					slog.Error("media group: photo upload failed", "err", err)
+					photoFailErr = err
 					continue
 				}
 				m.AddPhoto(uploaded)
@@ -150,12 +153,17 @@ func (b *Bridge) flushMediaGroup(ctx context.Context, groupID string) {
 				uploaded, err := b.maxApi.Uploads.UploadPhotoFromUrl(ctx, fileURL)
 				if err != nil {
 					slog.Error("media group: photo upload failed", "err", err)
+					photoFailErr = err
 					continue
 				}
 				m.AddPhoto(uploaded)
 			}
 			photosSent++
 		}
+	}
+	if photoFailErr != nil && photosSent == 0 {
+		b.tg.SendMessage(ctx, items[0].msg.Chat.ID,
+			fmt.Sprintf("Не удалось отправить альбом в MAX: %s", uploadErrHint(photoFailErr)), nil)
 	}
 
 	// Загружаем видео из альбома через direct API
