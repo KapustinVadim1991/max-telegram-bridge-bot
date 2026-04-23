@@ -163,7 +163,7 @@ func (b *Bridge) flushMediaGroup(ctx context.Context, groupID string) {
 	}
 	if photoFailErr != nil && photosSent == 0 {
 		b.tg.SendMessage(ctx, items[0].msg.Chat.ID,
-			fmt.Sprintf("Не удалось отправить альбом в MAX: %s", uploadErrHint(photoFailErr)), nil)
+			uploadErrMsg("Не удалось отправить альбом в MAX", photoFailErr), nil)
 	}
 
 	// Загружаем видео из альбома через direct API

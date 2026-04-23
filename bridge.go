@@ -204,8 +204,9 @@ func (b *Bridge) isSelfTgBot(from *UserInfo) bool {
 	return from != nil && from.IsBot && from.UserName == b.tg.BotUsername()
 }
 
-// uploadErrHint превращает техническую ошибку загрузки в короткий русский текст
-// для отправки в чат. Для неизвестных ошибок отдаёт усечённое сырое сообщение.
+// uploadErrHint превращает техническую ошибку загрузки в короткий текст для юзера.
+// Возвращает пустую строку для неизвестных ошибок — вызывающий код тогда
+// отправит только generic-сообщение без технической мути.
 func uploadErrHint(err error) string {
 	if err == nil {
 		return ""
@@ -213,21 +214,22 @@ func uploadErrHint(err error) string {
 	s := err.Error()
 	switch {
 	case strings.Contains(s, "file is too big"):
-		return "файл слишком большой для Telegram Bot API (лимит без локального сервера — 20 МБ)"
+		return "файл слишком большой"
 	case strings.Contains(s, "file is not found") || strings.Contains(s, "FILE_REFERENCE_EXPIRED"):
-		return "Telegram не нашёл файл (возможно, он удалён или ссылка протухла)"
-	case strings.Contains(s, "wrong file id") || strings.Contains(s, "Wrong file"):
-		return "некорректный file_id"
+		return "файл не найден"
 	case strings.Contains(s, "attachment.not.ready"):
-		return "MAX CDN не успел обработать файл — попробуйте ещё раз"
-	case strings.Contains(s, "chat.denied"):
-		return "MAX отклонил отправку: бот не добавлен в чат или не имеет прав"
+		return "попробуйте ещё раз"
 	}
-	const maxLen = 180
-	if len(s) > maxLen {
-		s = s[:maxLen] + "…"
+	return ""
+}
+
+// uploadErrMsg собирает user-facing сообщение: base + ": hint" если подсказка известна,
+// иначе просто "base." (без технической ошибки).
+func uploadErrMsg(base string, err error) string {
+	if hint := uploadErrHint(err); hint != "" {
+		return base + ": " + hint + "."
 	}
-	return s
+	return base + "."
 }
 
 func (b *Bridge) tgWebhookPath() string {

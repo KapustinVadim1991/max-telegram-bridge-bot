@@ -620,7 +620,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 				m.AddPhoto(uploaded)
 			} else {
 				slog.Error("TG→MAX photo upload failed", "err", err)
-				b.tg.SendMessage(ctx, msg.Chat.ID, fmt.Sprintf("Не удалось отправить фото в MAX: %s", uploadErrHint(err)), nil)
+				b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg("Не удалось отправить фото в MAX", err), nil)
 				return
 			}
 		} else if fileURL, err := b.tgFileURL(ctx, photo.FileID); err == nil {
@@ -628,12 +628,12 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 				m.AddPhoto(uploaded)
 			} else {
 				slog.Error("TG→MAX photo upload failed", "err", err)
-				b.tg.SendMessage(ctx, msg.Chat.ID, fmt.Sprintf("Не удалось отправить фото в MAX: %s", uploadErrHint(err)), nil)
+				b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg("Не удалось отправить фото в MAX", err), nil)
 				return
 			}
 		} else {
 			slog.Error("TG→MAX photo upload failed", "err", err)
-			b.tg.SendMessage(ctx, msg.Chat.ID, fmt.Sprintf("Не удалось отправить фото в MAX: %s", uploadErrHint(err)), nil)
+			b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg("Не удалось отправить фото в MAX", err), nil)
 			return
 		}
 		if msg.ReplyToMessage != nil {
@@ -669,7 +669,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 			mediaAttType = "video"
 		} else {
 			slog.Error("TG→MAX gif upload failed", "err", err)
-			b.tg.SendMessage(ctx, msg.Chat.ID, fmt.Sprintf("Не удалось отправить GIF \"%s\" в MAX: %s", name, uploadErrHint(err)), nil)
+			b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg(fmt.Sprintf("Не удалось отправить GIF \"%s\" в MAX", name), err), nil)
 			return
 		}
 	} else if msg.Sticker != nil {
@@ -683,7 +683,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 				mediaAttType = "video"
 			} else {
 				slog.Error("TG→MAX sticker upload failed", "err", err)
-				b.tg.SendMessage(ctx, msg.Chat.ID, fmt.Sprintf("Не удалось отправить стикер в MAX: %s", uploadErrHint(err)), nil)
+				b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg("Не удалось отправить стикер в MAX", err), nil)
 				return
 			}
 		} else {
@@ -701,7 +701,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 					result, err := b.maxApi.Messages.SendWithResult(ctx, m)
 					if err != nil {
 						slog.Error("TG→MAX sticker send failed", "err", err)
-						b.tg.SendMessage(ctx, msg.Chat.ID, fmt.Sprintf("Не удалось отправить стикер в MAX: %s", uploadErrHint(err)), nil)
+						b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg("Не удалось отправить стикер в MAX", err), nil)
 					} else {
 						slog.Info("TG→MAX sent", "mid", result.Body.Mid)
 						b.repo.SaveMsg(msg.Chat.ID, msg.MessageID, maxChatID, result.Body.Mid, msg.MessageThreadID)
@@ -709,12 +709,12 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 					return
 				} else {
 					slog.Error("TG→MAX sticker photo upload failed", "err", err)
-					b.tg.SendMessage(ctx, msg.Chat.ID, fmt.Sprintf("Не удалось отправить стикер в MAX: %s", uploadErrHint(err)), nil)
+					b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg("Не удалось отправить стикер в MAX", err), nil)
 					return
 				}
 			} else {
 				slog.Error("TG→MAX sticker getFileURL failed", "err", err)
-				b.tg.SendMessage(ctx, msg.Chat.ID, fmt.Sprintf("Не удалось отправить стикер в MAX: %s", uploadErrHint(err)), nil)
+				b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg("Не удалось отправить стикер в MAX", err), nil)
 				return
 			}
 		}
@@ -731,7 +731,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 			mediaAttType = "video"
 		} else {
 			slog.Error("TG→MAX video upload failed", "err", err)
-			b.tg.SendMessage(ctx, msg.Chat.ID, fmt.Sprintf("Не удалось отправить видео \"%s\" в MAX: %s", name, uploadErrHint(err)), nil)
+			b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg(fmt.Sprintf("Не удалось отправить видео \"%s\" в MAX", name), err), nil)
 			return
 		}
 	} else if msg.VideoNote != nil {
@@ -743,7 +743,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 			mediaAttType = "video"
 		} else {
 			slog.Error("TG→MAX video note upload failed", "err", err)
-			b.tg.SendMessage(ctx, msg.Chat.ID, fmt.Sprintf("Не удалось отправить кружок в MAX: %s", uploadErrHint(err)), nil)
+			b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg("Не удалось отправить кружок в MAX", err), nil)
 			return
 		}
 	} else if msg.Document != nil {
@@ -785,7 +785,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 			}
 			slog.Error("TG→MAX file upload failed", "err", err)
 			b.tg.SendMessage(ctx, msg.Chat.ID,
-				fmt.Sprintf("Не удалось отправить файл \"%s\" в MAX: %s", name, uploadErrHint(err)), nil)
+				uploadErrMsg(fmt.Sprintf("Не удалось отправить файл \"%s\" в MAX", name), err), nil)
 			return
 		}
 	} else if msg.Voice != nil {
@@ -803,7 +803,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 				return
 			}
 			slog.Error("TG→MAX voice upload failed", "err", err)
-			b.tg.SendMessage(ctx, msg.Chat.ID, fmt.Sprintf("Не удалось отправить голосовое сообщение в MAX: %s", uploadErrHint(err)), nil)
+			b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg("Не удалось отправить голосовое сообщение в MAX", err), nil)
 			return
 		}
 	} else if msg.Audio != nil {
@@ -834,7 +834,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 				return
 			}
 			slog.Error("TG→MAX audio upload failed", "err", err)
-			b.tg.SendMessage(ctx, msg.Chat.ID, fmt.Sprintf("Не удалось отправить аудио \"%s\" в MAX: %s", name, uploadErrHint(err)), nil)
+			b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg(fmt.Sprintf("Не удалось отправить аудио \"%s\" в MAX", name), err), nil)
 			return
 		}
 	}
@@ -965,7 +965,7 @@ func (b *Bridge) editTgMediaInMax(ctx context.Context, msg *TGMessage, maxChatID
 				m.AddPhoto(uploaded)
 			} else {
 				slog.Error("TG→MAX edit photo upload failed", "err", err)
-				b.tg.SendMessage(ctx, msg.Chat.ID, fmt.Sprintf("Не удалось обновить фото в MAX: %s", uploadErrHint(err)), nil)
+				b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg("Не удалось обновить фото в MAX", err), nil)
 				return
 			}
 		} else if fileURL, err := b.tgFileURL(ctx, photo.FileID); err == nil {
@@ -973,12 +973,12 @@ func (b *Bridge) editTgMediaInMax(ctx context.Context, msg *TGMessage, maxChatID
 				m.AddPhoto(uploaded)
 			} else {
 				slog.Error("TG→MAX edit photo upload failed", "err", err)
-				b.tg.SendMessage(ctx, msg.Chat.ID, fmt.Sprintf("Не удалось обновить фото в MAX: %s", uploadErrHint(err)), nil)
+				b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg("Не удалось обновить фото в MAX", err), nil)
 				return
 			}
 		} else {
 			slog.Error("TG→MAX edit photo upload failed", "err", err)
-			b.tg.SendMessage(ctx, msg.Chat.ID, fmt.Sprintf("Не удалось обновить фото в MAX: %s", uploadErrHint(err)), nil)
+			b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg("Не удалось обновить фото в MAX", err), nil)
 			return
 		}
 	}
