@@ -33,9 +33,9 @@ type Repository interface {
 	GetTgChat(maxChatID int64) (int64, bool)
 	MigrateTgChat(oldID, newID int64) error
 
-	SaveMsg(tgChatID int64, tgMsgID int, maxChatID int64, maxMsgID string)
+	SaveMsg(tgChatID int64, tgMsgID int, maxChatID int64, maxMsgID string, tgThreadID int)
 	LookupMaxMsgID(tgChatID int64, tgMsgID int) (string, bool)
-	LookupTgMsgID(maxMsgID string) (int64, int, bool)
+	LookupTgMsgID(maxMsgID string) (tgChatID int64, tgMsgID int, tgThreadID int, ok bool)
 	CleanOldMessages()
 
 	HasPrefix(platform string, chatID int64) bool

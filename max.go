@@ -51,7 +51,7 @@ func (b *Bridge) listenMax(ctx context.Context) {
 
 			// Обработка удаления (только bridge, не crosspost)
 			if delUpd, isDel := upd.(*maxschemes.MessageRemovedUpdate); isDel {
-				tgChatID, tgMsgID, ok := b.repo.LookupTgMsgID(delUpd.MessageId)
+				tgChatID, tgMsgID, _, ok := b.repo.LookupTgMsgID(delUpd.MessageId)
 				if !ok {
 					continue
 				}
@@ -75,7 +75,7 @@ func (b *Bridge) listenMax(ctx context.Context) {
 					continue
 				}
 				mid := editUpd.Message.Body.Mid
-				tgChatID, tgMsgID, ok := b.repo.LookupTgMsgID(mid)
+				tgChatID, tgMsgID, _, ok := b.repo.LookupTgMsgID(mid)
 				if !ok {
 					continue
 				}
@@ -295,6 +295,27 @@ func (b *Bridge) listenMax(ctx context.Context) {
 					continue
 				}
 				key := strings.TrimSpace(strings.TrimPrefix(text, "/bridge"))
+
+				// /bridge без ключа — если чат уже связан, не создавать новый ключ
+				if key == "" {
+					if tgID, linked := b.repo.GetTgChat(chatID); linked {
+						var reply string
+						if isGroup {
+							reply = fmt.Sprintf("Эта группа уже связана с Telegram (ID %d).\n\n/unbridge — удалить связку.", tgID)
+						} else {
+							reply = fmt.Sprintf("Этот личный чат уже связан с Telegram (ID %d).\n\nЧтобы связать группу — добавьте бота в неё и отправьте /bridge внутри группы, не здесь.\n\n/unbridge — удалить связку этого личного чата.", tgID)
+						}
+						m := maxbot.NewMessage().SetChat(chatID).SetText(reply)
+						b.maxApi.Messages.Send(ctx, m)
+						continue
+					}
+					if !isGroup {
+						m := maxbot.NewMessage().SetChat(chatID).SetText(
+							"Чтобы связать группу — добавьте бота в неё и отправьте /bridge внутри группы, не здесь.\n\nЕсли хотите связать этот личный чат с Telegram-пользователем — введите ключ от него: /bridge <ключ>.")
+						b.maxApi.Messages.Send(ctx, m)
+						continue
+					}
+				}
 				paired, generatedKey, err := b.repo.Register(key, "max", chatID)
 				if err != nil {
 					slog.Error("register failed", "err", err)
@@ -492,7 +513,7 @@ func (b *Bridge) listenMax(ctx context.Context) {
 				if !strings.HasPrefix(text, "[TG]") && !strings.HasPrefix(text, "[MAX]") {
 					prefix := b.repo.HasPrefix("max", chatID)
 					caption := formatMaxCaption(msgUpd, prefix, b.cfg.MessageNewline)
-					go b.forwardMaxToTg(ctx, msgUpd, tgChatID, caption)
+					go b.forwardMaxToTg(ctx, msgUpd, tgChatID, caption, false)
 				}
 				continue
 			}
@@ -522,7 +543,7 @@ func (b *Bridge) listenMax(ctx context.Context) {
 				caption = applyReplacements(caption, repl.MaxToTg)
 			}
 
-			go b.forwardMaxToTg(ctx, msgUpd, tgChatID, caption)
+			go b.forwardMaxToTg(ctx, msgUpd, tgChatID, caption, true)
 		}
 	}
 }
@@ -903,7 +924,8 @@ func maxCrosspostStatusText(tgChatID int64, direction string) string {
 }
 
 // forwardMaxToTg пересылает MAX-сообщение (текст/медиа) в TG-чат.
-func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageCreatedUpdate, tgChatID int64, caption string) {
+// Если isCrosspost=true, caption используется как финальный текст (с заменами, без атрибуции).
+func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageCreatedUpdate, tgChatID int64, caption string, isCrosspost bool) {
 	if b.cbBlocked(tgChatID) {
 		return
 	}
@@ -914,17 +936,21 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 	chatID := msgUpd.Message.Recipient.ChatId
 	text := strings.TrimSpace(body.Text)
 
-	// Reply ID
+	// Reply ID + маршрутизация в тред исходного TG-сообщения.
+	// Для reply-ответов всегда используем тред исходника (в т.ч. 0 = General),
+	// а не пара-дефолтный тред — иначе ответ уходит не туда, куда смотрит юзер.
 	var replyToID int
 	if body.ReplyTo != "" {
-		if _, rid, ok := b.repo.LookupTgMsgID(body.ReplyTo); ok {
+		if _, rid, tid, ok := b.repo.LookupTgMsgID(body.ReplyTo); ok {
 			replyToID = rid
+			threadID = tid
 		}
-	} else if msgUpd.Message.Link != nil {
+	} else if msgUpd.Message.Link != nil && msgUpd.Message.Link.Type == maxschemes.REPLY {
 		mid := msgUpd.Message.Link.Message.Mid
 		if mid != "" {
-			if _, rid, ok := b.repo.LookupTgMsgID(mid); ok {
+			if _, rid, tid, ok := b.repo.LookupTgMsgID(mid); ok {
 				replyToID = rid
+				threadID = tid
 			}
 		}
 	}
@@ -938,7 +964,7 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 	// Определяем HTML caption: всегда для bridge-режима (жирное имя) и при наличии markups
 	htmlCaption := caption
 	hasMarkups := len(body.Markups) > 0
-	hasAttribution := caption != text // bridge-режим (не кросспостинг)
+	hasAttribution := !isCrosspost // bridge-режим (не кросспостинг)
 	useHTML := hasMarkups || hasAttribution
 	if useHTML {
 		var htmlText string
@@ -1135,7 +1161,7 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 				slog.Error("MigrateTgChat failed", "err", err)
 			} else {
 				// Повторяем отправку с новым ID
-				go b.forwardMaxToTg(ctx, msgUpd, newChatID, caption)
+				go b.forwardMaxToTg(ctx, msgUpd, newChatID, caption, isCrosspost)
 			}
 			return
 		}
@@ -1161,7 +1187,7 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 			strings.Contains(errStr, "topics are disabled")) {
 			slog.Info("TG forum topics disabled, resetting thread_id", "tgChat", tgChatID, "oldThread", threadID)
 			b.repo.SetTgThreadID(tgChatID, 0)
-			go b.forwardMaxToTg(ctx, msgUpd, tgChatID, caption)
+			go b.forwardMaxToTg(ctx, msgUpd, tgChatID, caption, isCrosspost)
 			return
 		}
 
@@ -1183,6 +1209,6 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 	} else {
 		b.cbSuccess(tgChatID)
 		slog.Info("MAX→TG sent", "msgID", sentMsgID, "media", mediaSent, "uid", msgUpd.Message.Sender.UserId, "maxChat", chatID, "tgChat", tgChatID)
-		b.repo.SaveMsg(tgChatID, sentMsgID, chatID, body.Mid)
+		b.repo.SaveMsg(tgChatID, sentMsgID, chatID, body.Mid, threadID)
 	}
 }

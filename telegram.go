@@ -373,6 +373,26 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 					continue
 				}
 				key := strings.TrimSpace(strings.TrimPrefix(text, "/bridge"))
+
+				// /bridge без ключа — если чат уже связан, не создавать новый ключ
+				if key == "" {
+					if maxID, linked := b.repo.GetMaxChat(msg.Chat.ID); linked {
+						var txt string
+						if isGroup {
+							txt = fmt.Sprintf("Эта группа уже связана с MAX (ID <code>%d</code>).\n\n/unbridge — удалить связку.", maxID)
+						} else {
+							txt = fmt.Sprintf("Этот личный чат уже связан с MAX (ID <code>%d</code>).\n\nЧтобы связать <b>группу</b> — добавьте бота в неё и отправьте <code>/bridge</code> <b>внутри группы</b>, не здесь.\n\n/unbridge — удалить связку этого личного чата.", maxID)
+						}
+						b.tg.SendMessage(ctx, msg.Chat.ID, txt, &SendOpts{ParseMode: "HTML", ThreadID: msg.MessageThreadID})
+						continue
+					}
+					if !isGroup {
+						b.tg.SendMessage(ctx, msg.Chat.ID,
+							"Чтобы связать группу — добавьте бота в неё и отправьте <code>/bridge</code> <b>внутри группы</b>, не здесь.\n\nЕсли хотите связать этот личный чат с MAX-пользователем — введите ключ от него: <code>/bridge &lt;ключ&gt;</code>.",
+							&SendOpts{ParseMode: "HTML"})
+						continue
+					}
+				}
 				paired, generatedKey, err := b.repo.Register(key, "tg", msg.Chat.ID)
 				if err != nil {
 					slog.Error("register failed", "err", err)
@@ -550,7 +570,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 		} else {
 			b.cbSuccess(maxChatID)
 			slog.Info("TG→MAX sent", "mid", result.Body.Mid)
-			b.repo.SaveMsg(msg.Chat.ID, msg.MessageID, maxChatID, result.Body.Mid)
+			b.repo.SaveMsg(msg.Chat.ID, msg.MessageID, maxChatID, result.Body.Mid, msg.MessageThreadID)
 		}
 		return
 	} else if msg.Animation != nil {
@@ -602,7 +622,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 						b.tg.SendMessage(ctx, msg.Chat.ID, "Не удалось отправить стикер в MAX.", nil)
 					} else {
 						slog.Info("TG→MAX sent", "mid", result.Body.Mid)
-						b.repo.SaveMsg(msg.Chat.ID, msg.MessageID, maxChatID, result.Body.Mid)
+						b.repo.SaveMsg(msg.Chat.ID, msg.MessageID, maxChatID, result.Body.Mid, msg.MessageThreadID)
 					}
 					return
 				} else {
@@ -827,7 +847,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 	} else {
 		b.cbSuccess(maxChatID)
 		slog.Info("TG→MAX sent", "mid", mid, "uid", uid, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
-		b.repo.SaveMsg(msg.Chat.ID, msg.MessageID, maxChatID, mid)
+		b.repo.SaveMsg(msg.Chat.ID, msg.MessageID, maxChatID, mid, msg.MessageThreadID)
 	}
 }
 

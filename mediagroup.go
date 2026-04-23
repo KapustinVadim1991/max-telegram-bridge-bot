@@ -209,7 +209,7 @@ func (b *Bridge) flushMediaGroup(ctx context.Context, groupID string) {
 		}
 		b.cbSuccess(maxChatID)
 		slog.Info("TG→MAX media group sent", "mid", result.Body.Mid, "photos", photosSent)
-		b.repo.SaveMsg(items[0].msg.Chat.ID, items[0].msg.MessageID, maxChatID, result.Body.Mid)
+		b.repo.SaveMsg(items[0].msg.Chat.ID, items[0].msg.MessageID, maxChatID, result.Body.Mid, items[0].msg.MessageThreadID)
 	}
 
 	// Видео отправляем отдельно через direct API (SDK не поддерживает AddVideo)
@@ -224,7 +224,7 @@ func (b *Bridge) flushMediaGroup(ctx context.Context, groupID string) {
 			continue
 		}
 		if i == 0 && photosSent == 0 {
-			b.repo.SaveMsg(items[0].msg.Chat.ID, items[0].msg.MessageID, maxChatID, mid)
+			b.repo.SaveMsg(items[0].msg.Chat.ID, items[0].msg.MessageID, maxChatID, mid, items[0].msg.MessageThreadID)
 		}
 	}
 }

@@ -21,3 +21,4 @@ bridge.db.bak
 .omc/
 broadcast.sh
 broadcast_*.html
+.broadcast_sent/
