@@ -220,7 +220,9 @@ func (b *Bridge) listenMax(ctx context.Context) {
 						"/bridge — создать ключ для связки чатов\n" +
 						"/bridge <ключ> — связать этот чат с Telegram-чатом по ключу\n" +
 						"/bridge prefix on/off — включить/выключить префикс [TG]/[MAX]\n" +
-						"/unbridge — удалить связку\n\n" +
+						"/unbridge — удалить связку\n" +
+						"/thread_bridge <ключ> — связать этот MAX-чат с отдельным TG-тредом (форум)\n" +
+						"/thread_unbridge — разорвать связку треда\n\n" +
 						"Кросспостинг каналов (в личке бота):\n" +
 						"/crosspost <TG_ID> — связать MAX-канал с TG-каналом\n" +
 						"   (TG ID получить: перешлите пост из TG-канала TG-боту)\n\n" +
@@ -349,6 +351,67 @@ func (b *Bridge) listenMax(ctx context.Context) {
 					b.maxApi.Messages.Send(ctx, m)
 				} else {
 					m := maxbot.NewMessage().SetChat(chatID).SetText("Этот чат не связан.")
+					b.maxApi.Messages.Send(ctx, m)
+				}
+				continue
+			}
+
+			// /thread_bridge <key> — принять ключ, связать MAX-чат с конкретным TG-тредом
+			if strings.HasPrefix(text, "/thread_bridge") {
+				if isGroup && !isAdmin {
+					m := maxbot.NewMessage().SetChat(chatID).SetText("Эта команда доступна только админам группы.")
+					b.maxApi.Messages.Send(ctx, m)
+					continue
+				}
+				key := strings.TrimSpace(strings.TrimPrefix(text, "/thread_bridge"))
+				if key == "" {
+					if tgID, tid, ok := b.repo.GetThreadTgPair(chatID); ok {
+						m := maxbot.NewMessage().SetChat(chatID).SetText(
+							fmt.Sprintf("Этот чат уже связан с TG-тредом (чат %d, thread %d).\n\n/thread_unbridge — разорвать.", tgID, tid))
+						b.maxApi.Messages.Send(ctx, m)
+						continue
+					}
+					m := maxbot.NewMessage().SetChat(chatID).SetText(
+						"Нужен ключ: /thread_bridge <ключ>\n\nСначала в Telegram-форум-группе выполните /thread_bridge внутри нужного треда — там выдадут ключ.")
+					b.maxApi.Messages.Send(ctx, m)
+					continue
+				}
+				tgChatID, threadID, ok, err := b.repo.CompleteThreadBridge(key, chatID)
+				if err == errThreadMaxBusy {
+					m := maxbot.NewMessage().SetChat(chatID).SetText(
+						"Этот MAX-чат уже участвует в другой связке (bridge или thread-bridge). Сначала /unbridge или /thread_unbridge.")
+					b.maxApi.Messages.Send(ctx, m)
+					continue
+				}
+				if err != nil {
+					slog.Error("CompleteThreadBridge failed", "err", err)
+					m := maxbot.NewMessage().SetChat(chatID).SetText("Ошибка сохранения связки.")
+					b.maxApi.Messages.Send(ctx, m)
+					continue
+				}
+				if !ok {
+					m := maxbot.NewMessage().SetChat(chatID).SetText("Ключ не найден или истёк.")
+					b.maxApi.Messages.Send(ctx, m)
+					continue
+				}
+				m := maxbot.NewMessage().SetChat(chatID).SetText(
+					fmt.Sprintf("Связано с TG-тредом (чат %d, thread %d). Сообщения из этого MAX-чата будут уходить в указанный тред, и обратно.", tgChatID, threadID))
+				b.maxApi.Messages.Send(ctx, m)
+				slog.Info("thread-bridge paired", "tgChat", tgChatID, "thread", threadID, "maxChat", chatID)
+				continue
+			}
+
+			if text == "/thread_unbridge" {
+				if isGroup && !isAdmin {
+					m := maxbot.NewMessage().SetChat(chatID).SetText("Эта команда доступна только админам группы.")
+					b.maxApi.Messages.Send(ctx, m)
+					continue
+				}
+				if b.repo.UnpairThreadByMax(chatID) {
+					m := maxbot.NewMessage().SetChat(chatID).SetText("Связка треда удалена.")
+					b.maxApi.Messages.Send(ctx, m)
+				} else {
+					m := maxbot.NewMessage().SetChat(chatID).SetText("Этот чат не связан с тредом.")
 					b.maxApi.Messages.Send(ctx, m)
 				}
 				continue
@@ -506,8 +569,15 @@ func (b *Bridge) listenMax(ctx context.Context) {
 				continue
 			}
 
-			// Пересылка (bridge)
+			// Пересылка (bridge). Сначала проверяем thread-bridge (MAX-чат = отдельный TG-тред),
+			// потом обычную пару.
 			tgChatID, linked := b.repo.GetTgChat(chatID)
+			if !linked {
+				if tg, _, ok := b.repo.GetThreadTgPair(chatID); ok {
+					tgChatID = tg
+					linked = true
+				}
+			}
 			if linked && msgUpd.Message.Sender.UserId != b.maxBotUID {
 				// Anti-loop
 				if !strings.HasPrefix(text, "[TG]") && !strings.HasPrefix(text, "[MAX]") {
@@ -930,27 +1000,39 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 		return
 	}
 
-	threadID := b.repo.GetTgThreadID(tgChatID)
-
 	body := msgUpd.Message.Body
 	chatID := msgUpd.Message.Recipient.ChatId
 	text := strings.TrimSpace(body.Text)
 
-	// Reply ID + маршрутизация в тред исходного TG-сообщения.
-	// Для reply-ответов всегда используем тред исходника (в т.ч. 0 = General),
-	// а не пара-дефолтный тред — иначе ответ уходит не туда, куда смотрит юзер.
+	// Определяем тред-назначение:
+	// — thread-pair: MAX-чат жёстко привязан к одному TG-треду, все сообщения идут туда,
+	//   reply-override не меняет тред.
+	// — обычная пара: дефолтный тред пары + для reply переопределяем на тред исходника
+	//   (чтобы ответ попадал в ту же ветку, где лежит исходное сообщение).
+	var threadID int
+	_, threadPairThread, isThreadPair := b.repo.GetThreadTgPair(chatID)
+	if isThreadPair {
+		threadID = threadPairThread
+	} else {
+		threadID = b.repo.GetTgThreadID(tgChatID)
+	}
+
 	var replyToID int
 	if body.ReplyTo != "" {
 		if _, rid, tid, ok := b.repo.LookupTgMsgID(body.ReplyTo); ok {
 			replyToID = rid
-			threadID = tid
+			if !isThreadPair {
+				threadID = tid
+			}
 		}
 	} else if msgUpd.Message.Link != nil && msgUpd.Message.Link.Type == maxschemes.REPLY {
 		mid := msgUpd.Message.Link.Message.Mid
 		if mid != "" {
 			if _, rid, tid, ok := b.repo.LookupTgMsgID(mid); ok {
 				replyToID = rid
-				threadID = tid
+				if !isThreadPair {
+					threadID = tid
+				}
 			}
 		}
 	}

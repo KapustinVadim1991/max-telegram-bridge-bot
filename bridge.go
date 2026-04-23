@@ -217,6 +217,8 @@ func (b *Bridge) registerCommands(ctx context.Context) {
 		{Command: "bridge", Description: "Связать чат с MAX-чатом"},
 		{Command: "unbridge", Description: "Удалить связку чатов"},
 		{Command: "thread", Description: "Установить топик для сообщений из MAX"},
+		{Command: "thread_bridge", Description: "Связать тред с отдельным MAX-чатом"},
+		{Command: "thread_unbridge", Description: "Удалить связку треда"},
 		{Command: "crosspost", Description: "Список связок кросспостинга"},
 		{Command: "help", Description: "Инструкция"},
 	}

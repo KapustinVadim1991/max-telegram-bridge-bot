@@ -58,7 +58,14 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 				if b.isSelfTgBot(edited.From) {
 					continue
 				}
-				maxChatID, linked := b.repo.GetMaxChat(edited.Chat.ID)
+				var maxChatID int64
+				var linked bool
+				if edited.MessageThreadID != 0 {
+					maxChatID, linked = b.repo.GetThreadMaxChat(edited.Chat.ID, edited.MessageThreadID)
+				}
+				if !linked {
+					maxChatID, linked = b.repo.GetMaxChat(edited.Chat.ID)
+				}
 				if !linked {
 					continue
 				}
@@ -172,7 +179,9 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 						"/bridge <ключ> — связать этот чат с MAX-чатом по ключу\n"+
 						"/bridge prefix on/off — включить/выключить префикс [TG]/[MAX]\n"+
 						"/unbridge — удалить связку\n"+
-						"/thread — направить сообщения из MAX в текущий топик (форум)\n\n"+
+						"/thread — направить сообщения из MAX в текущий топик (форум)\n"+
+						"/thread_bridge — связать текущий тред с отдельной MAX-группой (форум)\n"+
+						"/thread_unbridge — разорвать связку треда\n\n"+
 						"Кросспостинг каналов:\n"+
 						"1. Добавьте бота админом в оба канала (с правом постинга)\n"+
 						"2. Перешлите пост из TG-канала в личку TG-бота\n"+
@@ -430,8 +439,77 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 				continue
 			}
 
-			// Пересылка
-			maxChatID, linked := b.repo.GetMaxChat(msg.Chat.ID)
+			// /thread_bridge — связать конкретный тред с отдельным MAX-чатом
+			if text == "/thread_bridge" {
+				if !b.checkUserAllowed(ctx, msg.Chat.ID, tgUserID(msg), msg.MessageThreadID) {
+					continue
+				}
+				if !isGroup {
+					b.tg.SendMessage(ctx, msg.Chat.ID, "Команда работает только в форум-группах.", nil)
+					continue
+				}
+				if !isAdmin {
+					b.tg.SendMessage(ctx, msg.Chat.ID, adminDeniedText, &SendOpts{ThreadID: msg.MessageThreadID})
+					continue
+				}
+				if msg.MessageThreadID == 0 {
+					b.tg.SendMessage(ctx, msg.Chat.ID,
+						"Отправьте команду <b>внутри конкретного треда</b> (не в General). Тред будет связан с отдельным MAX-чатом.",
+						&SendOpts{ParseMode: "HTML", ThreadID: msg.MessageThreadID})
+					continue
+				}
+				if maxID, ok := b.repo.GetThreadMaxChat(msg.Chat.ID, msg.MessageThreadID); ok {
+					b.tg.SendMessage(ctx, msg.Chat.ID,
+						fmt.Sprintf("Этот тред уже связан с MAX-чатом (ID <code>%d</code>).\n\n/thread_unbridge — разорвать связку.", maxID),
+						&SendOpts{ParseMode: "HTML", ThreadID: msg.MessageThreadID})
+					continue
+				}
+				key, err := b.repo.StartThreadBridge(msg.Chat.ID, msg.MessageThreadID)
+				if err != nil {
+					slog.Error("StartThreadBridge failed", "err", err)
+					b.tg.SendMessage(ctx, msg.Chat.ID, "Не удалось создать ключ.", &SendOpts{ThreadID: msg.MessageThreadID})
+					continue
+				}
+				_, sendErr := b.tg.SendMessage(ctx, msg.Chat.ID,
+					fmt.Sprintf("Ключ для связки этого треда: <code>%s</code>\n\nДобавьте MAX-бота в отдельную MAX-группу (которая будет зеркалом этого треда) и отправьте <b>в ней</b>:\n<code>/thread_bridge %s</code>\n\nСсылка на MAX-бота: %s", key, key, b.cfg.MaxBotURL),
+					&SendOpts{ParseMode: "HTML", ThreadID: msg.MessageThreadID})
+				if sendErr != nil {
+					slog.Error("thread-bridge reply send failed", "err", sendErr, "tgChat", msg.Chat.ID, "thread", msg.MessageThreadID)
+				}
+				slog.Info("thread-bridge pending", "tgChat", msg.Chat.ID, "thread", msg.MessageThreadID, "key", key)
+				continue
+			}
+
+			// /thread_unbridge — удалить связку конкретного треда
+			if text == "/thread_unbridge" {
+				if !b.checkUserAllowed(ctx, msg.Chat.ID, tgUserID(msg), msg.MessageThreadID) {
+					continue
+				}
+				if isGroup && !isAdmin {
+					b.tg.SendMessage(ctx, msg.Chat.ID, adminDeniedText, &SendOpts{ThreadID: msg.MessageThreadID})
+					continue
+				}
+				if msg.MessageThreadID == 0 {
+					b.tg.SendMessage(ctx, msg.Chat.ID, "Отправьте команду внутри треда.", nil)
+					continue
+				}
+				if b.repo.UnpairThread(msg.Chat.ID, msg.MessageThreadID) {
+					b.tg.SendMessage(ctx, msg.Chat.ID, "Связка треда удалена.", &SendOpts{ThreadID: msg.MessageThreadID})
+				} else {
+					b.tg.SendMessage(ctx, msg.Chat.ID, "Этот тред не связан.", &SendOpts{ThreadID: msg.MessageThreadID})
+				}
+				continue
+			}
+
+			// Пересылка. Приоритет у thread-bridge: если сообщение в связанном треде — шлём в его MAX-чат.
+			var maxChatID int64
+			var linked bool
+			if msg.MessageThreadID != 0 {
+				maxChatID, linked = b.repo.GetThreadMaxChat(msg.Chat.ID, msg.MessageThreadID)
+			}
+			if !linked {
+				maxChatID, linked = b.repo.GetMaxChat(msg.Chat.ID)
+			}
 			if !linked {
 				continue
 			}

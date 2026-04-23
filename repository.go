@@ -1,5 +1,10 @@
 package main
 
+import "errors"
+
+// errThreadMaxBusy — попытка thread-bridge на MAX-чат, уже участвующий в какой-то связке.
+var errThreadMaxBusy = errors.New("max chat is already linked (bridge or thread-bridge)")
+
 // Replacement — одно правило замены текста.
 // Target: "" или "all" — весь текст, "links" — только ссылки.
 type Replacement struct {
@@ -45,6 +50,15 @@ type Repository interface {
 
 	GetTgThreadID(tgChatID int64) int
 	SetTgThreadID(tgChatID int64, threadID int) error
+
+	// Thread-bridge: связка отдельного TG-треда с отдельным MAX-чатом.
+	// Ключ выдаётся в TG-треде (StartThreadBridge), принимается в MAX (CompleteThreadBridge).
+	StartThreadBridge(tgChatID int64, threadID int) (key string, err error)
+	CompleteThreadBridge(key string, maxChatID int64) (tgChatID int64, threadID int, ok bool, err error)
+	GetThreadMaxChat(tgChatID int64, threadID int) (maxChatID int64, ok bool)
+	GetThreadTgPair(maxChatID int64) (tgChatID int64, threadID int, ok bool)
+	UnpairThread(tgChatID int64, threadID int) bool
+	UnpairThreadByMax(maxChatID int64) bool
 
 	// Crosspost methods
 	PairCrosspost(tgChatID, maxChatID, ownerID, tgOwnerID int64) error

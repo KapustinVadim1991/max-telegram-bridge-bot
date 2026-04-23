@@ -177,6 +177,104 @@ func (r *pgRepo) SetTgThreadID(tgChatID int64, threadID int) error {
 	return err
 }
 
+func (r *pgRepo) StartThreadBridge(tgChatID int64, threadID int) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	var existing string
+	err := r.db.QueryRow(
+		"SELECT key FROM pending WHERE platform = 'tg' AND chat_id = $1 AND thread_id = $2 AND command = 'thread-bridge'",
+		tgChatID, threadID).Scan(&existing)
+	if err == nil {
+		return existing, nil
+	}
+
+	generated := genKey()
+	_, err = r.db.Exec(
+		"INSERT INTO pending (key, platform, chat_id, thread_id, created_at, command) VALUES ($1, 'tg', $2, $3, $4, 'thread-bridge')",
+		generated, tgChatID, threadID, time.Now().Unix())
+	return generated, err
+}
+
+func (r *pgRepo) CompleteThreadBridge(key string, maxChatID int64) (int64, int, bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	var tgChatID int64
+	var threadID int
+	err := r.db.QueryRow(
+		"SELECT chat_id, thread_id FROM pending WHERE key = $1 AND platform = 'tg' AND command = 'thread-bridge'",
+		key).Scan(&tgChatID, &threadID)
+	if err != nil {
+		return 0, 0, false, nil
+	}
+
+	var cnt int
+	r.db.QueryRow("SELECT COUNT(*) FROM pairs WHERE max_chat_id = $1", maxChatID).Scan(&cnt)
+	if cnt > 0 {
+		return 0, 0, false, errThreadMaxBusy
+	}
+	cnt = 0
+	r.db.QueryRow("SELECT COUNT(*) FROM thread_pairs WHERE max_chat_id = $1", maxChatID).Scan(&cnt)
+	if cnt > 0 {
+		return 0, 0, false, errThreadMaxBusy
+	}
+
+	r.db.Exec("DELETE FROM pending WHERE key = $1", key)
+	_, err = r.db.Exec(
+		`INSERT INTO thread_pairs (tg_chat_id, tg_thread_id, max_chat_id, created_at)
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (tg_chat_id, tg_thread_id) DO UPDATE
+		 SET max_chat_id = EXCLUDED.max_chat_id, created_at = EXCLUDED.created_at`,
+		tgChatID, threadID, maxChatID, time.Now().Unix())
+	if err != nil {
+		return 0, 0, false, err
+	}
+	return tgChatID, threadID, true, nil
+}
+
+func (r *pgRepo) GetThreadMaxChat(tgChatID int64, threadID int) (int64, bool) {
+	if threadID == 0 {
+		return 0, false
+	}
+	var id int64
+	err := r.db.QueryRow(
+		"SELECT max_chat_id FROM thread_pairs WHERE tg_chat_id = $1 AND tg_thread_id = $2",
+		tgChatID, threadID).Scan(&id)
+	return id, err == nil
+}
+
+func (r *pgRepo) GetThreadTgPair(maxChatID int64) (int64, int, bool) {
+	var tgChatID int64
+	var threadID int
+	err := r.db.QueryRow(
+		"SELECT tg_chat_id, tg_thread_id FROM thread_pairs WHERE max_chat_id = $1",
+		maxChatID).Scan(&tgChatID, &threadID)
+	return tgChatID, threadID, err == nil
+}
+
+func (r *pgRepo) UnpairThread(tgChatID int64, threadID int) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	res, err := r.db.Exec("DELETE FROM thread_pairs WHERE tg_chat_id = $1 AND tg_thread_id = $2", tgChatID, threadID)
+	if err != nil {
+		return false
+	}
+	n, _ := res.RowsAffected()
+	return n > 0
+}
+
+func (r *pgRepo) UnpairThreadByMax(maxChatID int64) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	res, err := r.db.Exec("DELETE FROM thread_pairs WHERE max_chat_id = $1", maxChatID)
+	if err != nil {
+		return false
+	}
+	n, _ := res.RowsAffected()
+	return n > 0
+}
+
 func (r *pgRepo) PairCrosspost(tgChatID, maxChatID, ownerID, tgOwnerID int64) error {
 	_, err := r.db.Exec(
 		"INSERT INTO crossposts (tg_chat_id, max_chat_id, created_at, owner_id, tg_owner_id) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (tg_chat_id, max_chat_id) DO NOTHING",
