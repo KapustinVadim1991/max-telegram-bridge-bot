@@ -248,6 +248,10 @@ func (b *Bridge) sendMaxDirectFormatted(ctx context.Context, chatID int64, text 
 		} `json:"link,omitempty"`
 	}
 
+	// format применяется только к тексту — при пустом тексте MAX отклоняет payload.
+	if text == "" {
+		format = ""
+	}
 	body := msgBody{Text: text, Format: format}
 	if attType != "" && token != "" {
 		body.Attachments = []attachment{{
