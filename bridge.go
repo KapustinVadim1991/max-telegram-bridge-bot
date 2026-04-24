@@ -204,6 +204,29 @@ func (b *Bridge) isSelfTgBot(from *UserInfo) bool {
 	return from != nil && from.IsBot && from.UserName == b.tg.BotUsername()
 }
 
+// notifyTgUser отправляет пользовательское уведомление (например, об ошибке загрузки).
+// Для bridge-режима — в чат, где пришло сообщение (в нужный тред, если форум).
+// Для crosspost — в ЛС владельцу связки (tg_owner_id), чтобы не мусорить в канал.
+// Если владелец не задан (legacy) — уведомление дропается с warn-логом.
+func (b *Bridge) notifyTgUser(ctx context.Context, srcChat *TGMessage, maxChatID int64, text string, isCrosspost bool) {
+	if isCrosspost {
+		_, tgOwner := b.repo.GetCrosspostOwner(maxChatID)
+		if tgOwner == 0 {
+			slog.Warn("crosspost notify skipped: no tg owner", "maxChat", maxChatID, "text", text)
+			return
+		}
+		if _, err := b.tg.SendMessage(ctx, tgOwner, text, nil); err != nil {
+			slog.Warn("crosspost notify DM failed", "err", err, "tgOwner", tgOwner)
+		}
+		return
+	}
+	var opts *SendOpts
+	if srcChat != nil && srcChat.MessageThreadID != 0 {
+		opts = &SendOpts{ThreadID: srcChat.MessageThreadID}
+	}
+	b.tg.SendMessage(ctx, srcChat.Chat.ID, text, opts)
+}
+
 // uploadErrHint превращает техническую ошибку загрузки в короткий текст для юзера.
 // Возвращает пустую строку для неизвестных ошибок — вызывающий код тогда
 // отправит только generic-сообщение без технической мути.

@@ -580,7 +580,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 			warn = fmt.Sprintf("⚠️ Файл \"%s\" слишком большой для пересылки (%s). Максимальный размер файла %d МБ.",
 				fileName, formatFileSize(fileSize), limit)
 		}
-		b.tg.SendMessage(ctx, msg.Chat.ID, warn, nil)
+		b.notifyTgUser(ctx, msg, maxChatID, warn, isCrosspost)
 		return true
 	}
 
@@ -620,7 +620,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 				m.AddPhoto(uploaded)
 			} else {
 				slog.Error("TG→MAX photo upload failed", "err", err)
-				b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg("Не удалось отправить фото в MAX", err), nil)
+				b.notifyTgUser(ctx, msg, maxChatID, uploadErrMsg("Не удалось отправить фото в MAX", err), isCrosspost)
 				return
 			}
 		} else if fileURL, err := b.tgFileURL(ctx, photo.FileID); err == nil {
@@ -628,12 +628,12 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 				m.AddPhoto(uploaded)
 			} else {
 				slog.Error("TG→MAX photo upload failed", "err", err)
-				b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg("Не удалось отправить фото в MAX", err), nil)
+				b.notifyTgUser(ctx, msg, maxChatID, uploadErrMsg("Не удалось отправить фото в MAX", err), isCrosspost)
 				return
 			}
 		} else {
 			slog.Error("TG→MAX photo upload failed", "err", err)
-			b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg("Не удалось отправить фото в MAX", err), nil)
+			b.notifyTgUser(ctx, msg, maxChatID, uploadErrMsg("Не удалось отправить фото в MAX", err), isCrosspost)
 			return
 		}
 		if msg.ReplyToMessage != nil {
@@ -646,8 +646,8 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 		if err != nil {
 			slog.Error("TG→MAX send failed", "err", err, "uid", uid, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
 			if b.cbFail(maxChatID) {
-				b.tg.SendMessage(ctx, msg.Chat.ID,
-					fmt.Sprintf("Не удалось переслать в MAX. Пересылка приостановлена на %d мин. Проверьте, что бот добавлен в MAX-чат и является админом.", int(cbCooldown.Minutes())), nil)
+				b.notifyTgUser(ctx, msg, maxChatID,
+					fmt.Sprintf("Не удалось переслать в MAX. Пересылка приостановлена на %d мин. Проверьте, что бот добавлен в MAX-чат и является админом.", int(cbCooldown.Minutes())), isCrosspost)
 			}
 		} else {
 			b.cbSuccess(maxChatID)
@@ -669,7 +669,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 			mediaAttType = "video"
 		} else {
 			slog.Error("TG→MAX gif upload failed", "err", err)
-			b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg(fmt.Sprintf("Не удалось отправить GIF \"%s\" в MAX", name), err), nil)
+			b.notifyTgUser(ctx, msg, maxChatID, uploadErrMsg(fmt.Sprintf("Не удалось отправить GIF \"%s\" в MAX", name), err), isCrosspost)
 			return
 		}
 	} else if msg.Sticker != nil {
@@ -683,7 +683,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 				mediaAttType = "video"
 			} else {
 				slog.Error("TG→MAX sticker upload failed", "err", err)
-				b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg("Не удалось отправить стикер в MAX", err), nil)
+				b.notifyTgUser(ctx, msg, maxChatID, uploadErrMsg("Не удалось отправить стикер в MAX", err), isCrosspost)
 				return
 			}
 		} else {
@@ -701,7 +701,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 					result, err := b.maxApi.Messages.SendWithResult(ctx, m)
 					if err != nil {
 						slog.Error("TG→MAX sticker send failed", "err", err)
-						b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg("Не удалось отправить стикер в MAX", err), nil)
+						b.notifyTgUser(ctx, msg, maxChatID, uploadErrMsg("Не удалось отправить стикер в MAX", err), isCrosspost)
 					} else {
 						slog.Info("TG→MAX sent", "mid", result.Body.Mid)
 						b.repo.SaveMsg(msg.Chat.ID, msg.MessageID, maxChatID, result.Body.Mid, msg.MessageThreadID)
@@ -709,12 +709,12 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 					return
 				} else {
 					slog.Error("TG→MAX sticker photo upload failed", "err", err)
-					b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg("Не удалось отправить стикер в MAX", err), nil)
+					b.notifyTgUser(ctx, msg, maxChatID, uploadErrMsg("Не удалось отправить стикер в MAX", err), isCrosspost)
 					return
 				}
 			} else {
 				slog.Error("TG→MAX sticker getFileURL failed", "err", err)
-				b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg("Не удалось отправить стикер в MAX", err), nil)
+				b.notifyTgUser(ctx, msg, maxChatID, uploadErrMsg("Не удалось отправить стикер в MAX", err), isCrosspost)
 				return
 			}
 		}
@@ -731,7 +731,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 			mediaAttType = "video"
 		} else {
 			slog.Error("TG→MAX video upload failed", "err", err)
-			b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg(fmt.Sprintf("Не удалось отправить видео \"%s\" в MAX", name), err), nil)
+			b.notifyTgUser(ctx, msg, maxChatID, uploadErrMsg(fmt.Sprintf("Не удалось отправить видео \"%s\" в MAX", name), err), isCrosspost)
 			// Видео не залилось — не блокируем отправку текста/подписи, fallback ниже подмешает [Видео].
 		}
 	} else if msg.VideoNote != nil {
@@ -743,7 +743,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 			mediaAttType = "video"
 		} else {
 			slog.Error("TG→MAX video note upload failed", "err", err)
-			b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg("Не удалось отправить кружок в MAX", err), nil)
+			b.notifyTgUser(ctx, msg, maxChatID, uploadErrMsg("Не удалось отправить кружок в MAX", err), isCrosspost)
 			return
 		}
 	} else if msg.Document != nil {
@@ -768,8 +768,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 		if b.cfg.MaxAllowedExts != nil && attType == "file" {
 			ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
 			if _, ok := b.cfg.MaxAllowedExts[ext]; !ok {
-				b.tg.SendMessage(ctx, msg.Chat.ID,
-					fmt.Sprintf("Файл \"%s\" не поддерживается в MAX (расширение .%s не разрешено).", name, ext), nil)
+				b.notifyTgUser(ctx, msg, maxChatID, fmt.Sprintf("Файл \"%s\" не поддерживается в MAX (расширение .%s не разрешено).", name, ext), isCrosspost)
 				return
 			}
 		}
@@ -779,13 +778,12 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 		} else {
 			var e *ErrForbiddenExtension
 			if errors.As(err, &e) {
-				b.tg.SendMessage(ctx, msg.Chat.ID,
-					fmt.Sprintf("Файл \"%s\" не поддерживается в MAX (запрещённое расширение).", name), nil)
+				b.notifyTgUser(ctx, msg, maxChatID, fmt.Sprintf("Файл \"%s\" не поддерживается в MAX (запрещённое расширение).", name), isCrosspost)
 				return
 			}
 			slog.Error("TG→MAX file upload failed", "err", err)
-			b.tg.SendMessage(ctx, msg.Chat.ID,
-				uploadErrMsg(fmt.Sprintf("Не удалось отправить файл \"%s\" в MAX", name), err), nil)
+			b.notifyTgUser(ctx, msg, maxChatID,
+				uploadErrMsg(fmt.Sprintf("Не удалось отправить файл \"%s\" в MAX", name), err), isCrosspost)
 			return
 		}
 	} else if msg.Voice != nil {
@@ -798,12 +796,11 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 		} else {
 			var e *ErrForbiddenExtension
 			if errors.As(err, &e) {
-				b.tg.SendMessage(ctx, msg.Chat.ID,
-					fmt.Sprintf("Файл \"%s\" не поддерживается в MAX (запрещённое расширение).", e.Name), nil)
+				b.notifyTgUser(ctx, msg, maxChatID, fmt.Sprintf("Файл \"%s\" не поддерживается в MAX (запрещённое расширение).", e.Name), isCrosspost)
 				return
 			}
 			slog.Error("TG→MAX voice upload failed", "err", err)
-			b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg("Не удалось отправить голосовое сообщение в MAX", err), nil)
+			b.notifyTgUser(ctx, msg, maxChatID, uploadErrMsg("Не удалось отправить голосовое сообщение в MAX", err), isCrosspost)
 			return
 		}
 	} else if msg.Audio != nil {
@@ -818,8 +815,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 		if b.cfg.MaxAllowedExts != nil {
 			ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
 			if _, ok := b.cfg.MaxAllowedExts[ext]; !ok {
-				b.tg.SendMessage(ctx, msg.Chat.ID,
-					fmt.Sprintf("Файл \"%s\" не поддерживается в MAX (расширение .%s не разрешено).", name, ext), nil)
+				b.notifyTgUser(ctx, msg, maxChatID, fmt.Sprintf("Файл \"%s\" не поддерживается в MAX (расширение .%s не разрешено).", name, ext), isCrosspost)
 				return
 			}
 		}
@@ -829,12 +825,11 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 		} else {
 			var e *ErrForbiddenExtension
 			if errors.As(err, &e) {
-				b.tg.SendMessage(ctx, msg.Chat.ID,
-					fmt.Sprintf("Файл \"%s\" не поддерживается в MAX (запрещённое расширение).", name), nil)
+				b.notifyTgUser(ctx, msg, maxChatID, fmt.Sprintf("Файл \"%s\" не поддерживается в MAX (запрещённое расширение).", name), isCrosspost)
 				return
 			}
 			slog.Error("TG→MAX audio upload failed", "err", err)
-			b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg(fmt.Sprintf("Не удалось отправить аудио \"%s\" в MAX", name), err), nil)
+			b.notifyTgUser(ctx, msg, maxChatID, uploadErrMsg(fmt.Sprintf("Не удалось отправить аудио \"%s\" в MAX", name), err), isCrosspost)
 			return
 		}
 	}
@@ -935,8 +930,8 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 			b.enqueueTg2Max(msg.Chat.ID, msg.MessageID, maxChatID, mdCaption, mediaAttType, mediaToken, replyTo, format)
 		}
 		if b.cbFail(maxChatID) {
-			b.tg.SendMessage(ctx, msg.Chat.ID,
-				"MAX API недоступен. Сообщения в очереди, будут доставлены автоматически.", nil)
+			b.notifyTgUser(ctx, msg, maxChatID,
+				"MAX API недоступен. Сообщения в очереди, будут доставлены автоматически.", isCrosspost)
 		}
 	} else {
 		b.cbSuccess(maxChatID)

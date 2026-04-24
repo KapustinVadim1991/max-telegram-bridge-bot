@@ -165,8 +165,8 @@ func (b *Bridge) flushMediaGroup(ctx context.Context, groupID string) {
 		}
 	}
 	if photoFailErr != nil && photosSent == 0 {
-		b.tg.SendMessage(ctx, items[0].msg.Chat.ID,
-			uploadErrMsg("Не удалось отправить альбом в MAX", photoFailErr), nil)
+		b.notifyTgUser(ctx, items[0].msg, maxChatID,
+			uploadErrMsg("Не удалось отправить альбом в MAX", photoFailErr), isCrosspost)
 	}
 
 	// Загружаем видео из альбома через direct API
@@ -198,8 +198,8 @@ func (b *Bridge) flushMediaGroup(ctx context.Context, groupID string) {
 		if err != nil {
 			slog.Error("TG→MAX media group send failed", "err", err)
 			if b.cbFail(maxChatID) {
-				b.tg.SendMessage(ctx, items[0].msg.Chat.ID,
-					fmt.Sprintf("Не удалось переслать альбом в MAX. Пересылка приостановлена на %d мин. Проверьте, что бот добавлен в MAX-чат и является админом.", int(cbCooldown.Minutes())), nil)
+				b.notifyTgUser(ctx, items[0].msg, maxChatID,
+					fmt.Sprintf("Не удалось переслать альбом в MAX. Пересылка приостановлена на %d мин. Проверьте, что бот добавлен в MAX-чат и является админом.", int(cbCooldown.Minutes())), isCrosspost)
 			}
 			// Fallback — по одному
 			for _, it := range items {
