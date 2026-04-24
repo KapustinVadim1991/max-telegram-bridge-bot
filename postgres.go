@@ -64,8 +64,8 @@ func (r *pgRepo) Register(key, platform string, chatID int64) (bool, string, err
 	}
 
 	_, err = r.db.Exec(
-		"INSERT INTO pairs (tg_chat_id, max_chat_id, prefix) VALUES ($1, $2, 0) ON CONFLICT (tg_chat_id, max_chat_id) DO NOTHING",
-		tgID, maxID)
+		"INSERT INTO pairs (tg_chat_id, max_chat_id, prefix, created_at) VALUES ($1, $2, 0, $3) ON CONFLICT (tg_chat_id, max_chat_id) DO NOTHING",
+		tgID, maxID, time.Now().Unix())
 	return true, "", err
 }
 

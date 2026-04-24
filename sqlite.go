@@ -60,7 +60,10 @@ func (r *sqliteRepo) Register(key, platform string, chatID int64) (bool, string,
 		tgID, maxID = peerChatID, chatID
 	}
 
-	_, err = r.db.Exec("INSERT OR REPLACE INTO pairs (tg_chat_id, max_chat_id, prefix) VALUES (?, ?, 0)", tgID, maxID)
+	_, err = r.db.Exec(
+		`INSERT INTO pairs (tg_chat_id, max_chat_id, prefix, created_at) VALUES (?, ?, 0, ?)
+		 ON CONFLICT(tg_chat_id, max_chat_id) DO UPDATE SET prefix = 0`,
+		tgID, maxID, time.Now().Unix())
 	return true, "", err
 }
 
