@@ -114,14 +114,17 @@ func (b *Bridge) flushMediaGroup(ctx context.Context, groupID string) {
 		}
 	}
 
-	// Форматируем caption
+	// Форматируем caption.
+	// Для crosspost caption уже в markdown (см. formatTgCrosspostCaption),
+	// повторно конвертировать нельзя — entities ссылаются на offsets сырого текста.
 	mdCaption := caption
-	if entities != nil {
+	if entities != nil && !isCrosspost {
 		mdCaption = tgEntitiesToMarkdown(caption, entities)
 	}
 
 	m := maxbot.NewMessage().SetChat(maxChatID).SetText(mdCaption)
-	if mdCaption != caption {
+	// Для crosspost caption уже markdown; для bridge — markdown если были entities.
+	if isCrosspost || mdCaption != caption {
 		m.SetFormat("markdown")
 	}
 	if replyTo != "" {

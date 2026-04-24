@@ -732,7 +732,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 		} else {
 			slog.Error("TG→MAX video upload failed", "err", err)
 			b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg(fmt.Sprintf("Не удалось отправить видео \"%s\" в MAX", name), err), nil)
-			return
+			// Видео не залилось — не блокируем отправку текста/подписи, fallback ниже подмешает [Видео].
 		}
 	} else if msg.VideoNote != nil {
 		if checkSize(msg.VideoNote.FileSize, "circle.mp4") {
@@ -854,8 +854,11 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 		mdText = tgEntitiesToMarkdown(rawText, entities)
 	}
 
-	// Fallback для неудавшейся загрузки медиа
-	if mediaAttType == "" && msg.Text == "" {
+	// Fallback: медиа было, но не загрузилось (либо не хватило места, либо Bot API
+	// не смог его скачать). Подмешиваем маркер типа, чтобы хотя бы текст прошёл.
+	hasMedia := msg.Video != nil || msg.VideoNote != nil || msg.Document != nil ||
+		msg.Voice != nil || msg.Audio != nil || msg.Sticker != nil || msg.Animation != nil || msg.Photo != nil
+	if mediaAttType == "" && hasMedia {
 		mediaType := ""
 		switch {
 		case msg.Video != nil:
@@ -870,10 +873,16 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 			mediaType = "[Аудио]"
 		case msg.Sticker != nil:
 			mediaType = "[Стикер]"
-		default:
-			return
+		case msg.Animation != nil:
+			mediaType = "[GIF]"
+		case msg.Photo != nil:
+			mediaType = "[Фото]"
 		}
-		mdText = mdText + mediaType
+		if mdText != "" {
+			mdText = mdText + "\n" + mediaType
+		} else {
+			mdText = mediaType
+		}
 	}
 
 	// Reply ID
@@ -897,10 +906,9 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 
 	// Если для этого чата уже есть сообщения в очереди — не отправляем напрямую,
 	// чтобы не нарушить порядок. Сразу ставим в очередь.
+	// Caption для crosspost уже содержит markdown (formatTgCrosspostCaption),
+	// так что формат одинаков для обоих режимов.
 	format := "markdown"
-	if isCrosspost {
-		format = ""
-	}
 
 	if b.hasPendingForChat("tg2max", maxChatID) {
 		slog.Info("TG→MAX queued (pending exists)", "uid", uid, "tgChat", msg.Chat.ID, "maxChat", maxChatID)

@@ -84,13 +84,17 @@ func formatMaxCaption(upd *maxschemes.MessageCreatedUpdate, prefix, newline bool
 	return formatAttribution(name, text, newline)
 }
 
-// formatTgCrosspostCaption — для кросспостинга каналов (без attribution и префиксов)
+// formatTgCrosspostCaption — для кросспостинга каналов (без attribution и префиксов).
+// Конвертирует entities в markdown, чтобы ссылки и форматирование сохранились
+// при пересылке в MAX. Replacements, если настроены, применяются поверх markdown.
 func formatTgCrosspostCaption(msg *TGMessage) string {
 	text := msg.Text
+	entities := msg.Entities
 	if text == "" {
 		text = msg.Caption
+		entities = msg.CaptionEntities
 	}
-	return text
+	return tgEntitiesToMarkdown(text, entities)
 }
 
 // formatMaxCrosspostCaption — для кросспостинга каналов (без attribution и префиксов)
