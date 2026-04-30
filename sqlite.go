@@ -121,7 +121,8 @@ func (r *sqliteRepo) HasPrefix(platform string, chatID int64) bool {
 		err = r.db.QueryRow("SELECT prefix FROM pairs WHERE max_chat_id = ?", chatID).Scan(&v)
 	}
 	if err != nil {
-		return true
+		// Чат не в pairs (например, thread-bridged) — без префикса по умолчанию.
+		return false
 	}
 	return v == 1
 }

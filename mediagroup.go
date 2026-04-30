@@ -90,7 +90,7 @@ func (b *Bridge) flushMediaGroup(ctx context.Context, groupID string) {
 	}
 
 	uid := tgUserID(items[0].msg)
-	prefix := !isCrosspost && b.repo.HasPrefix("tg", items[0].msg.Chat.ID)
+	prefix := !isCrosspost && b.hasPrefix("tg", items[0].msg.Chat.ID)
 
 	// Caption и entities берём из первого элемента, у которого caption не пустой
 	var caption string

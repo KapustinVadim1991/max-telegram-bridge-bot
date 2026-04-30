@@ -85,7 +85,7 @@ func (b *Bridge) listenMax(ctx context.Context) {
 						continue
 					}
 				}
-				prefix := b.repo.HasPrefix("max", editUpd.Message.Recipient.ChatId)
+				prefix := b.hasPrefix("max", editUpd.Message.Recipient.ChatId)
 				name := editUpd.Message.Sender.Name
 				if name == "" {
 					name = editUpd.Message.Sender.Username
@@ -581,7 +581,7 @@ func (b *Bridge) listenMax(ctx context.Context) {
 			if linked && msgUpd.Message.Sender.UserId != b.maxBotUID {
 				// Anti-loop
 				if !strings.HasPrefix(text, "[TG]") && !strings.HasPrefix(text, "[MAX]") {
-					prefix := b.repo.HasPrefix("max", chatID)
+					prefix := b.hasPrefix("max", chatID)
 					caption := formatMaxCaption(msgUpd, prefix, b.cfg.MessageNewline)
 					go b.forwardMaxToTg(ctx, msgUpd, tgChatID, caption, false)
 				}
@@ -1061,7 +1061,7 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 		} else {
 			// Bridge: caption с атрибуцией — жирное имя
 			name := maxName(msgUpd)
-			if b.repo.HasPrefix("max", msgUpd.Message.Recipient.ChatId) {
+			if b.hasPrefix("max", msgUpd.Message.Recipient.ChatId) {
 				name = "[MAX] " + name
 			}
 			escapedName := html.EscapeString(name)

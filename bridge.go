@@ -30,6 +30,9 @@ type Config struct {
 	// MessageNewline — если true, текст идёт с новой строки после имени отправителя:
 	// "Имя:\nтекст" вместо "Имя: текст". Задаётся через env MESSAGE_FORMAT=newline.
 	MessageNewline bool
+	// DisablePrefix — глобально отключает префиксы [TG]/[MAX] на всех чатах,
+	// независимо от настройки в БД. Задаётся через env DISABLE_PREFIX=true.
+	DisablePrefix bool
 }
 
 // chatBreaker хранит состояние circuit breaker для одного чата.
@@ -202,6 +205,15 @@ func (b *Bridge) tgChatTitle(ctx context.Context, chatID int64) string {
 // isSelfTgBot проверяет, является ли отправитель нашим ботом (а не чужим).
 func (b *Bridge) isSelfTgBot(from *UserInfo) bool {
 	return from != nil && from.IsBot && from.UserName == b.tg.BotUsername()
+}
+
+// hasPrefix — обёртка над repo.HasPrefix с учётом глобального флага DisablePrefix.
+// Возвращает false если префиксы отключены глобально через env.
+func (b *Bridge) hasPrefix(platform string, chatID int64) bool {
+	if b.cfg.DisablePrefix {
+		return false
+	}
+	return b.repo.HasPrefix(platform, chatID)
 }
 
 // notifyTgUser отправляет пользовательское уведомление (например, об ошибке загрузки).

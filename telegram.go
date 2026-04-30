@@ -77,7 +77,7 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 
 				// Если маппинг не найден и есть медиа — отправляем как новое сообщение (fallback)
 				if hasMedia && !hasMapping {
-					prefix := b.repo.HasPrefix("tg", edited.Chat.ID)
+					prefix := b.hasPrefix("tg", edited.Chat.ID)
 					caption := formatTgCaption(edited, prefix, b.cfg.MessageNewline)
 					go b.forwardTgToMax(ctx, edited, maxChatID, caption, false)
 					continue
@@ -87,7 +87,7 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 					continue
 				}
 
-				prefix := b.repo.HasPrefix("tg", edited.Chat.ID)
+				prefix := b.hasPrefix("tg", edited.Chat.ID)
 
 				if hasMedia {
 					// Edit с медиа — редактируем сообщение в MAX с новым вложением
@@ -517,7 +517,7 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 				continue
 			}
 
-			prefix := b.repo.HasPrefix("tg", msg.Chat.ID)
+			prefix := b.hasPrefix("tg", msg.Chat.ID)
 			caption := formatTgCaption(msg, prefix, b.cfg.MessageNewline)
 
 			// Проверяем anti-loop
@@ -605,7 +605,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 			}
 			mdText := tgEntitiesToMarkdown(rawText, msg.CaptionEntities)
 			name := tgName(msg)
-			if b.repo.HasPrefix("tg", msg.Chat.ID) {
+			if b.hasPrefix("tg", msg.Chat.ID) {
 				name = "[TG] " + name
 			}
 			mdCaption = formatAttributionMD(name, mdText, b.cfg.MessageNewline)
@@ -893,7 +893,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 		mdCaption = mdText
 	} else {
 		name := tgName(msg)
-		if b.repo.HasPrefix("tg", msg.Chat.ID) {
+		if b.hasPrefix("tg", msg.Chat.ID) {
 			name = "[TG] " + name
 		}
 		mdCaption = formatAttributionMD(name, mdText, b.cfg.MessageNewline)
@@ -954,7 +954,7 @@ func (b *Bridge) editTgMediaInMax(ctx context.Context, msg *TGMessage, maxChatID
 	}
 	mdText := tgEntitiesToMarkdown(rawText, editEntities)
 	name := tgName(msg)
-	if b.repo.HasPrefix("tg", msg.Chat.ID) {
+	if b.hasPrefix("tg", msg.Chat.ID) {
 		name = "[TG] " + name
 	}
 	mdCaption := formatAttributionMD(name, mdText, b.cfg.MessageNewline)

@@ -117,6 +117,12 @@ func main() {
 		slog.Info("Message format: newline")
 	}
 
+	// DISABLE_PREFIX=true — глобально выключить префиксы [TG]/[MAX] на всех чатах.
+	if v := strings.ToLower(os.Getenv("DISABLE_PREFIX")); v == "true" || v == "1" || v == "yes" {
+		cfg.DisablePrefix = true
+		slog.Info("Prefix [TG]/[MAX] globally disabled via DISABLE_PREFIX")
+	}
+
 	dbPath := envOr("DB_PATH", "bridge.db")
 
 	var repo Repository
