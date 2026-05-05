@@ -1004,6 +1004,26 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 	chatID := msgUpd.Message.Recipient.ChatId
 	text := strings.TrimSpace(body.Text)
 
+	// Forward (репост) из MAX: оригинал лежит в Link.Message, а body.Text часто пустой
+	// (если юзер не дописал свой комментарий). Подмешиваем содержимое Link.Message.Text,
+	// иначе в TG прилетит пустое "Name:" сообщение.
+	markups := body.Markups
+	if lk := msgUpd.Message.Link; lk != nil && lk.Type == maxschemes.FORWARD {
+		fwd := strings.TrimSpace(lk.Message.Text)
+		if fwd != "" {
+			if text != "" {
+				// У юзера есть комментарий — склеиваем коммент + перенос + переcланный текст.
+				// markups для склеенного текста невалидны, поэтому отбрасываем форматирование.
+				text = text + "\n\n" + fwd
+				markups = nil
+			} else {
+				// Только репост — берём текст и markups из Link.Message как есть.
+				text = fwd
+				markups = lk.Message.Markups
+			}
+		}
+	}
+
 	// Определяем тред-назначение:
 	// — thread-pair: MAX-чат жёстко привязан к одному TG-треду, все сообщения идут туда,
 	//   reply-override не меняет тред.
@@ -1045,13 +1065,13 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 
 	// Определяем HTML caption: всегда для bridge-режима (жирное имя) и при наличии markups
 	htmlCaption := caption
-	hasMarkups := len(body.Markups) > 0
+	hasMarkups := len(markups) > 0
 	hasAttribution := !isCrosspost // bridge-режим (не кросспостинг)
 	useHTML := hasMarkups || hasAttribution
 	if useHTML {
 		var htmlText string
 		if hasMarkups {
-			htmlText = maxMarkupsToHTML(text, body.Markups)
+			htmlText = maxMarkupsToHTML(text, markups)
 		} else {
 			htmlText = html.EscapeString(text)
 		}
