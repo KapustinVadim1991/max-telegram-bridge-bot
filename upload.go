@@ -92,7 +92,7 @@ func (b *Bridge) customUploadToMax(ctx context.Context, uploadType maxschemes.Up
 	}
 	req.Header.Set("Authorization", b.cfg.MaxToken)
 
-	resp, err := b.apiClient.Do(req)
+	resp, err := b.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("get upload url: %w", err)
 	}
