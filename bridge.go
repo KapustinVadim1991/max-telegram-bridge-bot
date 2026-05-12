@@ -18,8 +18,10 @@ type Config struct {
 	MaxToken     string  // токен MAX API (нужен для direct-send/upload)
 	TgBotURL     string  // ссылка на TG-бота для /help
 	MaxBotURL    string  // ссылка на MAX-бота для /help
-	WebhookURL   string  // базовый URL для webhook (если пусто — long polling)
-	WebhookPort  string  // порт для webhook сервера
+	MaxWebhookURL  string  // базовый URL для webhook MAX (если пусто — long polling)
+	MaxWebhookPort string  // порт HTTP-сервера для MAX webhook (по умолчанию 8443)
+	TgWebhookURL   string  // базовый URL для webhook TG (если пусто — long polling)
+	TgWebhookPort  string  // порт HTTP-сервера для TG webhook (по умолчанию 8444)
 	TgAPIURL         string  // custom TG Bot API URL (если пусто — api.telegram.org)
 	AllowedUsers     []int64 // whitelist TG user IDs (empty = allow all)
 	TgMaxFileSizeMB  int     // max file size TG->MAX in MB (0 = unlimited)
@@ -324,20 +326,32 @@ func (b *Bridge) Run(ctx context.Context) {
 		}
 	}()
 
-	if b.cfg.WebhookURL != "" {
+	startWebhookServer := func(port string, label string) {
 		go func() {
-			addr := ":" + b.cfg.WebhookPort
+			addr := ":" + port
 			srv := &http.Server{
 				Addr:         addr,
 				ReadTimeout:  10 * time.Second,
 				WriteTimeout: 10 * time.Second,
 				IdleTimeout:  60 * time.Second,
 			}
-			slog.Info("Webhook server starting", "addr", addr)
+			slog.Info("Webhook server starting", "label", label, "addr", addr)
 			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				slog.Error("Webhook server failed", "err", err)
+				slog.Error("Webhook server failed", "label", label, "err", err)
 			}
 		}()
+	}
+
+	if b.cfg.MaxWebhookURL != "" && b.cfg.TgWebhookURL != "" && b.cfg.MaxWebhookPort == b.cfg.TgWebhookPort {
+		// оба на одном порту — один сервер
+		startWebhookServer(b.cfg.MaxWebhookPort, "MAX+TG")
+	} else {
+		if b.cfg.MaxWebhookURL != "" {
+			startWebhookServer(b.cfg.MaxWebhookPort, "MAX")
+		}
+		if b.cfg.TgWebhookURL != "" {
+			startWebhookServer(b.cfg.TgWebhookPort, "TG")
+		}
 	}
 
 	var wg sync.WaitGroup

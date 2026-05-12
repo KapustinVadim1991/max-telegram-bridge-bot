@@ -192,8 +192,10 @@ export MAX_TOKEN=your_token
 | `DATABASE_URL` | DSN для PostgreSQL (если задана — SQLite игнорируется) | — |
 | `TG_BOT_URL` | Ссылка на TG-бота (показывается в `/help`) | `https://t.me/MaxTelegramBridgeBot` |
 | `MAX_BOT_URL` | Ссылка на MAX-бота (показывается в `/help`) | `https://max.ru/id710708943262_bot` |
-| `WEBHOOK_URL` | Базовый URL для webhook, например `https://bridge.example.com` (если не задан — long polling). Эндпоинты: `/tg-webhook`, `/max-webhook` | — |
-| `WEBHOOK_PORT` | Порт для webhook сервера | `8443` |
+| `MAX_WEBHOOK_URL` | Базовый URL для webhook, например `https://bridge.example.com` (если не задан — long polling). Эндпоинт: `/max-webhook` | — |
+| `TG_WEBHOOK_URL` | Базовый URL для webhook, например `https://bridge.example.com` (если не задан — long polling). Эндпоинты: `/tg-webhook` | — |
+| `MAX_WEBHOOK_PORT` | Порт для webhook сервера MAX. Если порт совпадает с Telegram, значит будет общий сервер | `8443` |
+| `TG_WEBHOOK_PORT` | Порт для webhook сервера Telegram . Если порт совпадает с Max, значит будет общий сервер | `8443` |
 | `LOG_LEVEL` | Уровень логирования: `debug`, `info`, `warn`, `error` | `info` |
 | `TG_API_URL` | URL локального [Telegram Bot API сервера](https://github.com/tdlib/telegram-bot-api), например `http://localhost:8081`. Снимает лимиты на размер файлов | — |
 | `ALLOWED_USERS` | Белый список Telegram user ID через запятую. Если не задан — доступ открыт для всех | — |

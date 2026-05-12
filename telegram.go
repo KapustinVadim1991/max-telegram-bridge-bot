@@ -16,9 +16,9 @@ import (
 func (b *Bridge) listenTelegram(ctx context.Context) {
 	var updates <-chan TGUpdate
 
-	if b.cfg.WebhookURL != "" {
+	if b.cfg.TgWebhookURL != "" {
 		whPath := b.tgWebhookPath()
-		whURL := strings.TrimRight(b.cfg.WebhookURL, "/") + whPath
+		whURL := strings.TrimRight(b.cfg.TgWebhookURL, "/") + whPath
 		if err := b.tg.SetWebhook(ctx, whURL); err != nil {
 			slog.Error("TG set webhook failed", "err", err)
 			return
