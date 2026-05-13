@@ -16,9 +16,9 @@ import (
 func (b *Bridge) listenTelegram(ctx context.Context) {
 	var updates <-chan TGUpdate
 
-	if b.cfg.WebhookURL != "" {
+	if b.cfg.TgWebhookURL != "" {
 		whPath := b.tgWebhookPath()
-		whURL := strings.TrimRight(b.cfg.WebhookURL, "/") + whPath
+		whURL := strings.TrimRight(b.cfg.TgWebhookURL, "/") + whPath
 		if err := b.tg.SetWebhook(ctx, whURL); err != nil {
 			slog.Error("TG set webhook failed", "err", err)
 			return
@@ -984,7 +984,77 @@ func (b *Bridge) editTgMediaInMax(ctx context.Context, msg *TGMessage, maxChatID
 			b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg("Не удалось обновить фото в MAX", err), nil)
 			return
 		}
+	} else if msg.Video != nil {
+		// MAX SDK EditMessage без вложений стирает медиа на стороне MAX. Перезаливаем видео.
+		name := "video.mp4"
+		if msg.Video.FileName != "" {
+			name = msg.Video.FileName
+		}
+		uploaded, err := b.uploadTgMediaToMax(ctx, msg.Video.FileID, maxschemes.VIDEO, name)
+		if err != nil {
+			slog.Error("TG→MAX edit video upload failed", "err", err)
+			b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg(fmt.Sprintf("Не удалось обновить видео \"%s\" в MAX", name), err), nil)
+			return
+		}
+		m.AddVideo(uploaded)
+	} else if msg.Animation != nil {
+		name := "animation.mp4"
+		if msg.Animation.FileName != "" {
+			name = msg.Animation.FileName
+		}
+		uploaded, err := b.uploadTgMediaToMax(ctx, msg.Animation.FileID, maxschemes.VIDEO, name)
+		if err != nil {
+			slog.Error("TG→MAX edit gif upload failed", "err", err)
+			b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg(fmt.Sprintf("Не удалось обновить GIF \"%s\" в MAX", name), err), nil)
+			return
+		}
+		m.AddVideo(uploaded)
+	} else if msg.Document != nil {
+		name := msg.Document.FileName
+		uploadType := maxschemes.FILE
+		isVideo := strings.HasPrefix(msg.Document.MimeType, "video/")
+		if isVideo {
+			uploadType = maxschemes.VIDEO
+			if name == "" {
+				name = mimeToFilename("video", msg.Document.MimeType)
+			}
+		}
+		if name == "" {
+			name = mimeToFilename("document", msg.Document.MimeType)
+		}
+		uploaded, err := b.uploadTgMediaToMax(ctx, msg.Document.FileID, uploadType, name)
+		if err != nil {
+			slog.Error("TG→MAX edit document upload failed", "err", err)
+			b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg(fmt.Sprintf("Не удалось обновить файл \"%s\" в MAX", name), err), nil)
+			return
+		}
+		if isVideo {
+			m.AddVideo(uploaded)
+		} else {
+			m.AddFile(uploaded)
+		}
+	} else if msg.Audio != nil {
+		name := "audio.mp3"
+		if msg.Audio.FileName != "" {
+			name = msg.Audio.FileName
+		}
+		uploaded, err := b.uploadTgMediaToMax(ctx, msg.Audio.FileID, maxschemes.FILE, name)
+		if err != nil {
+			slog.Error("TG→MAX edit audio upload failed", "err", err)
+			b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg(fmt.Sprintf("Не удалось обновить аудио \"%s\" в MAX", name), err), nil)
+			return
+		}
+		m.AddFile(uploaded)
+	} else if msg.Voice != nil {
+		uploaded, err := b.uploadTgMediaToMax(ctx, msg.Voice.FileID, maxschemes.AUDIO, "voice.ogg")
+		if err != nil {
+			slog.Error("TG→MAX edit voice upload failed", "err", err)
+			b.tg.SendMessage(ctx, msg.Chat.ID, uploadErrMsg("Не удалось обновить голосовое в MAX", err), nil)
+			return
+		}
+		m.AddAudio(uploaded)
 	}
+	// Стикеры/VideoNote редактирование подписи не поддерживают со стороны TG, поэтому пропускаем.
 
 	if err := b.maxApi.Messages.EditMessage(ctx, maxMsgID, m); err != nil {
 		slog.Error("TG→MAX edit media failed", "err", err, "uid", uid, "tgChat", msg.Chat.ID, "maxMsgID", maxMsgID)

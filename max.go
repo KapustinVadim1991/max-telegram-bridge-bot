@@ -17,9 +17,9 @@ import (
 func (b *Bridge) listenMax(ctx context.Context) {
 	var updates <-chan maxschemes.UpdateInterface
 
-	if b.cfg.WebhookURL != "" {
+	if b.cfg.MaxWebhookURL != "" {
 		whPath := b.maxWebhookPath()
-		whURL := strings.TrimRight(b.cfg.WebhookURL, "/") + whPath
+		whURL := strings.TrimRight(b.cfg.MaxWebhookURL, "/") + whPath
 		ch := make(chan maxschemes.UpdateInterface, 100)
 		http.HandleFunc(whPath, b.maxApi.GetHandler(ch))
 		updateTypes := []string{
@@ -1007,6 +1007,8 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 	// Forward (репост) из MAX: оригинал лежит в Link.Message, а body.Text часто пустой
 	// (если юзер не дописал свой комментарий). Подмешиваем содержимое Link.Message.Text,
 	// иначе в TG прилетит пустое "Name:" сообщение.
+	// Вложения оригинала тоже лежат в Link.Message.Attachments — body.Attachments при
+	// пересылке пустой, поэтому их нужно взять явно.
 	markups := body.Markups
 	if lk := msgUpd.Message.Link; lk != nil && lk.Type == maxschemes.FORWARD {
 		fwd := strings.TrimSpace(lk.Message.Text)
@@ -1021,6 +1023,10 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 				text = fwd
 				markups = lk.Message.Markups
 			}
+		}
+		// Вложения оригинала добавляем перед вложениями обёртки (обычно она пустая).
+		if len(lk.Message.Attachments) > 0 {
+			body.Attachments = append(lk.Message.Attachments, body.Attachments...)
 		}
 	}
 
