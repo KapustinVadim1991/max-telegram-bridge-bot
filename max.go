@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	maxbot "github.com/max-messenger/max-bot-api-client-go"
 	maxschemes "github.com/max-messenger/max-bot-api-client-go/schemes"
@@ -33,6 +34,19 @@ func (b *Bridge) listenMax(ctx context.Context) {
 		}
 		updates = ch
 		slog.Info("MAX webhook mode")
+
+		// При завершении — снимаем подписку, чтобы MAX не долбился в мёртвый URL
+		// и чтобы при переключении в polling события сразу пошли (MAX иначе продолжит
+		// слать в старый webhook с экспоненциальным backoff).
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if _, err := b.maxApi.Subscriptions.Unsubscribe(shutdownCtx, whURL); err != nil {
+				slog.Error("MAX webhook unsubscribe failed", "err", err, "url", whURL)
+			} else {
+				slog.Info("MAX webhook unsubscribed", "url", whURL)
+			}
+		}()
 	} else {
 		updates = b.maxApi.GetUpdates(ctx)
 		slog.Info("MAX polling mode")
