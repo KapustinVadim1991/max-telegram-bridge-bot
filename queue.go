@@ -96,7 +96,20 @@ func (b *Bridge) processQueue(ctx context.Context) {
 			slog.Warn("queue item expired", "id", item.ID, "dir", item.Direction, "attempts", item.Attempts, "age", age)
 			b.repo.DeleteFromQueue(item.ID)
 			if item.Direction == "tg2max" {
-				b.tg.SendMessage(ctx, item.SrcChatID, fmt.Sprintf("Сообщение не доставлено в MAX после %d попыток.", item.Attempts), nil)
+				text := fmt.Sprintf("Сообщение не доставлено в MAX после %d попыток.", item.Attempts)
+				// Для crosspost (TG-канал → MAX) шлём в ЛС владельцу связки, а не в канал —
+				// подписчикам видеть «не доставлено» нет смысла.
+				if _, _, isCp := b.repo.GetCrosspostMaxChat(item.SrcChatID); isCp {
+					_, tgOwner := b.repo.GetCrosspostOwner(item.DstChatID)
+					if tgOwner != 0 {
+						b.tg.SendMessage(ctx, tgOwner, text, nil)
+					} else {
+						slog.Warn("queue expire notify skipped: no tg owner",
+							"srcChat", item.SrcChatID, "maxChat", item.DstChatID)
+					}
+				} else {
+					b.tg.SendMessage(ctx, item.SrcChatID, text, nil)
+				}
 			}
 			continue
 		}
