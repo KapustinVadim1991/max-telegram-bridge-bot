@@ -56,10 +56,28 @@ func tgEntitiesToMarkdown(text string, entities []Entity) string {
 		}
 		end := e.Offset + e.Length
 		if end > len(utf16units) {
-			end = len(utf16units)
+    		end = len(utf16units)
 		}
-		tags = append(tags, tag{pos: e.Offset, open: true, idx: i, text: open})
-		tags = append(tags, tag{pos: end, open: false, idx: i, text: close})
+
+		// ── НОВОЕ: trim пробелов внутрь entity ──────────────────────────────
+		// Открывающий тег ставим ПОСЛЕ ведущих пробелов внутри entity
+		openPos := e.Offset
+		for openPos < end && utf16units[openPos] == ' ' {
+    		openPos++
+		}
+		// Закрывающий тег ставим ДО хвостовых пробелов внутри entity
+		closePos := end
+		for closePos > openPos && utf16units[closePos-1] == ' ' {
+ 		   closePos--
+		}
+		// Если вся entity — сплошные пробелы, пропускаем её
+		if openPos >= closePos {
+ 		   continue
+		}
+		// ────────────────────────────────────────────────────────────────────
+
+		tags = append(tags, tag{pos: openPos, open: true, idx: i, text: open})
+		tags = append(tags, tag{pos: closePos, open: false, idx: i, text: close})
 	}
 
 	if len(tags) == 0 {
