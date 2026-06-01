@@ -127,8 +127,11 @@ func (b *Bridge) processQueueTg2Max(ctx context.Context, item QueueItem, now tim
 	mid, err := b.sendMaxDirectFormatted(ctx, item.DstChatID, item.Text, item.AttType, item.AttToken, item.ReplyTo, item.Format)
 	if err != nil {
 		errStr := err.Error()
-		// Permanent errors — дропаем
-		if strings.Contains(errStr, "403") || strings.Contains(errStr, "404") || strings.Contains(errStr, "chat.denied") {
+		// Permanent errors — дропаем сразу, чтобы не блокировать очередь HoL-ом.
+		if strings.Contains(errStr, "403") || strings.Contains(errStr, "404") ||
+			strings.Contains(errStr, "chat.denied") ||
+			strings.Contains(errStr, "attachment not ready after") ||
+			strings.Contains(errStr, "must be at most") {
 			slog.Warn("queue item dropped (permanent error)", "id", item.ID, "err", errStr)
 			b.repo.DeleteFromQueue(item.ID)
 			return
@@ -182,7 +185,11 @@ func (b *Bridge) processQueueMax2Tg(ctx context.Context, item QueueItem, now tim
 			b.repo.IncrementAttempt(item.ID, now.Unix()) // retry immediately
 			return
 		}
-		if strings.Contains(errStr, "TOPIC_CLOSED") || strings.Contains(errStr, "403") || strings.Contains(errStr, "chat not found") {
+		if strings.Contains(errStr, "TOPIC_CLOSED") || strings.Contains(errStr, "403") || strings.Contains(errStr, "chat not found") ||
+			strings.Contains(errStr, "can't parse entities") ||
+			strings.Contains(errStr, "caption is too long") ||
+			strings.Contains(errStr, "message is too long") ||
+			strings.Contains(errStr, "MESSAGE_TOO_LONG") {
 			slog.Warn("queue item dropped (permanent error)", "id", item.ID, "dir", "max2tg", "err", errStr)
 			b.repo.DeleteFromQueue(item.ID)
 			return

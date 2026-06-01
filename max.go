@@ -63,6 +63,28 @@ func (b *Bridge) listenMax(ctx context.Context) {
 
 			slog.Debug("MAX update", "type", fmt.Sprintf("%T", upd))
 
+			// Логируем выкидывание бота из чата — пара остаётся в БД (мб случайно
+			// выкинули, потом вернут), но видно кто/когда удалил.
+			if rm, isRm := upd.(*maxschemes.BotRemovedFromChatUpdate); isRm {
+				tgChatID, linked := b.repo.GetTgChat(rm.ChatId)
+				slog.Warn("MAX bot removed from chat",
+					"maxChat", rm.ChatId,
+					"byUser", rm.User.UserId,
+					"byUsername", rm.User.Username,
+					"byName", rm.User.Name,
+					"linkedTgChat", tgChatID,
+					"linked", linked)
+				continue
+			}
+			if add, isAdd := upd.(*maxschemes.BotAddedToChatUpdate); isAdd {
+				slog.Info("MAX bot added to chat",
+					"maxChat", add.ChatId,
+					"byUser", add.User.UserId,
+					"byUsername", add.User.Username,
+					"byName", add.User.Name)
+				continue
+			}
+
 			// Обработка удаления (только bridge, не crosspost)
 			if delUpd, isDel := upd.(*maxschemes.MessageRemovedUpdate); isDel {
 				tgChatID, tgMsgID, _, ok := b.repo.LookupTgMsgID(delUpd.MessageId)
