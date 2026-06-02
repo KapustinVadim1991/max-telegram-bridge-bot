@@ -581,6 +581,10 @@ func (b *Bridge) listenMax(ctx context.Context) {
 			if linked && msgUpd.Message.Sender.UserId != b.maxBotUID {
 				// Anti-loop
 				if !strings.HasPrefix(text, "[TG]") && !strings.HasPrefix(text, "[MAX]") {
+					// Маркер "не пересылать в TG"
+			        if strings.HasPrefix(text, "\u200B") || strings.Contains(text, "#nb") {
+			            continue
+			        }
 					prefix := b.hasPrefix("max", chatID)
 					caption := formatMaxCaption(msgUpd, prefix, b.cfg.MessageNewline)
 					go b.forwardMaxToTg(ctx, msgUpd, tgChatID, caption, false)
@@ -603,6 +607,10 @@ func (b *Bridge) listenMax(ctx context.Context) {
 			// Anti-loop
 			if strings.HasPrefix(text, "[TG]") || strings.HasPrefix(text, "[MAX]") {
 				continue
+			}
+			// Не пересылаем сообщения со спец символами
+			if strings.HasPrefix(text, "\u200B") || strings.Contains(text, "#nb") {
+			    continue
 			}
 
 			caption := formatMaxCrosspostCaption(msgUpd)
