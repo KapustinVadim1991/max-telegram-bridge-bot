@@ -528,7 +528,16 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 			if strings.HasPrefix(checkText, "[MAX]") || strings.HasPrefix(checkText, "[TG]") {
 				continue
 			}
-
+			// Маркер "не пересылать в MAX"
+			// Вариант A: невидимый символ в начале
+			if strings.HasPrefix(checkText, "\u200B") {
+			    continue
+			}
+			// Вариант B: хэштег в конце (можно оставить оба)
+			if strings.Contains(checkText, "#nb") {
+			    continue
+			}
+			
 			// Media group (альбом) — буферизуем и отправляем вместе
 			if msg.MediaGroupID != "" {
 				videoID := ""
