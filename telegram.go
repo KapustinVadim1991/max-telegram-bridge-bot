@@ -551,6 +551,7 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 					replyToMsg:  msg.ReplyToMessage,
 					entities:    msg.CaptionEntities,
 					msg:         msg,
+					maxChatID:   maxChatID, // был определён выше через GetThreadMaxChat или GetMaxChat
 				})
 				continue
 			}
