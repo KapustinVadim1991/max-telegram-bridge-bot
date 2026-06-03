@@ -2,13 +2,9 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"sync"
 	"time"
-
-	maxbot "github.com/max-messenger/max-bot-api-client-go"
-	maxschemes "github.com/max-messenger/max-bot-api-client-go/schemes"
 )
 
 const mediaGroupTimeout = 1 * time.Second
@@ -57,7 +53,15 @@ func (b *Bridge) bufferMediaGroup(ctx context.Context, groupID string, item medi
 	buf.mu.Unlock()
 }
 
-// flushMediaGroup отправляет все накопленные фото/видео альбома одним сообщением в MAX.
+// flushMediaGroup отправляет каждый файл альбома отдельным сообщением в MAX.
+//
+// Почему по одному, а не одним batch-запросом:
+//  1. MAX API поддерживает только одно вложение на сообщение — несколько AddPhoto()
+//     в одном запросе либо игнорируются, либо вызывают ошибку.
+//  2. Документы (PDF и др.) не попадали в старый batch-путь вообще, потому что
+//     mediaGroupItem хранит только photoSizes/videoFileID, а Document — нет.
+//     item.msg (оригинальный *TGMessage) несёт все поля включая Document,
+//     и forwardTgToMax уже умеет их обрабатывать.
 func (b *Bridge) flushMediaGroup(ctx context.Context, groupID string) {
 	b.mgMu.Lock()
 	buf, ok := b.mgBuffers[groupID]
@@ -89,153 +93,25 @@ func (b *Bridge) flushMediaGroup(ctx context.Context, groupID string) {
 		}
 	}
 
-	uid := tgUserID(items[0].msg)
 	prefix := !isCrosspost && b.hasPrefix("tg", items[0].msg.Chat.ID)
 
-	// Caption и entities берём из первого элемента, у которого caption не пустой
-	var caption string
-	var entities []Entity
+	slog.Info("TG→MAX flushing media group", "items", len(items),
+		"tgChat", items[0].msg.Chat.ID, "maxChat", maxChatID)
+
+	// Отправляем каждый файл отдельным сообщением.
+	// forwardTgToMax использует item.msg напрямую и корректно обрабатывает
+	// Photo, Video, Document и все остальные типы вложений.
 	for _, it := range items {
-		if it.caption != "" {
-			caption = it.caption
-			entities = it.entities
-			break
-		}
-	}
-
-	// Reply ID из первого элемента с reply
-	var replyTo string
-	for _, it := range items {
-		if it.replyToMsg != nil {
-			if maxReplyID, ok := b.repo.LookupMaxMsgID(it.msg.Chat.ID, it.replyToMsg.MessageID); ok {
-				replyTo = maxReplyID
+		var cap string
+		if isCrosspost {
+			cap = formatTgCrosspostCaption(it.msg)
+			repl := b.repo.GetCrosspostReplacements(maxChatID)
+			if len(repl.TgToMax) > 0 {
+				cap = applyReplacements(cap, repl.TgToMax)
 			}
-			break
+		} else {
+			cap = formatTgCaption(it.msg, prefix, b.cfg.MessageNewline)
 		}
-	}
-
-	// Форматируем caption.
-	// Для crosspost caption уже в markdown (см. formatTgCrosspostCaption),
-	// повторно конвертировать нельзя — entities ссылаются на offsets сырого текста.
-	mdCaption := caption
-	if entities != nil && !isCrosspost {
-		mdCaption = tgEntitiesToMarkdown(caption, entities)
-	}
-
-	m := maxbot.NewMessage().SetChat(maxChatID).SetText(mdCaption)
-	// Для crosspost caption уже markdown; для bridge — markdown если были entities.
-	if isCrosspost || mdCaption != caption {
-		m.SetFormat("markdown")
-	}
-	if replyTo != "" {
-		m.SetReply(mdCaption, replyTo)
-	}
-
-	// Загружаем и добавляем все фото
-	photosSent := 0
-	var photoFailErr error
-	for _, it := range items {
-		if len(it.photoSizes) > 0 {
-			photo := it.photoSizes[len(it.photoSizes)-1]
-			fileURL, err := b.tgFileURL(ctx, photo.FileID)
-			if err != nil {
-				slog.Error("media group: tgFileURL failed", "err", err)
-				photoFailErr = err
-				continue
-			}
-			// Если custom TG API — MAX не может скачать по URL, скачиваем сами
-			if b.cfg.TgAPIURL != "" {
-				uploaded, err := b.uploadTgPhotoToMax(ctx, photo.FileID)
-				if err != nil {
-					slog.Error("media group: photo upload failed", "err", err)
-					photoFailErr = err
-					continue
-				}
-				m.AddPhoto(uploaded)
-			} else {
-				uploaded, err := b.maxApi.Uploads.UploadPhotoFromUrl(ctx, fileURL)
-				if err != nil {
-					slog.Error("media group: photo upload failed", "err", err)
-					photoFailErr = err
-					continue
-				}
-				m.AddPhoto(uploaded)
-			}
-			photosSent++
-		}
-	}
-	if photoFailErr != nil && photosSent == 0 {
-		b.notifyTgUser(ctx, items[0].msg, maxChatID,
-			uploadErrMsg("Не удалось отправить альбом в MAX", photoFailErr), isCrosspost)
-	}
-
-	// Загружаем видео из альбома через direct API
-	videosSent := 0
-	var videoTokens []string
-	for _, it := range items {
-		if it.videoFileID != "" {
-			uploaded, err := b.uploadTgMediaToMax(ctx, it.videoFileID, maxschemes.VIDEO, "video.mp4")
-			if err != nil {
-				slog.Error("media group: video upload failed", "err", err)
-				continue
-			}
-			videoTokens = append(videoTokens, uploaded.Token)
-			videosSent++
-		}
-	}
-
-	totalMedia := photosSent + videosSent
-	if totalMedia == 0 {
-		slog.Warn("media group: no media uploaded, skipping")
-		return
-	}
-
-	slog.Info("TG→MAX sending media group", "photos", photosSent, "videos", videosSent, "uid", uid, "tgChat", items[0].msg.Chat.ID, "maxChat", maxChatID)
-
-	// Если есть фото — отправляем через SDK (поддерживает AddPhoto)
-	if photosSent > 0 {
-		result, err := b.maxApi.Messages.SendWithResult(ctx, m)
-		if err != nil {
-			slog.Error("TG→MAX media group send failed", "err", err)
-			if b.cbFail(maxChatID) {
-				b.notifyTgUser(ctx, items[0].msg, maxChatID,
-					fmt.Sprintf("Не удалось переслать альбом в MAX. Пересылка приостановлена на %d мин. Проверьте, что бот добавлен в MAX-чат и является админом.", int(cbCooldown.Minutes())), isCrosspost)
-			}
-			// Fallback — по одному
-			for _, it := range items {
-				var cap string
-				if isCrosspost {
-					cap = formatTgCrosspostCaption(it.msg)
-					// Применяем замены для TG→MAX
-					repl := b.repo.GetCrosspostReplacements(maxChatID)
-					if len(repl.TgToMax) > 0 {
-						cap = applyReplacements(cap, repl.TgToMax)
-					}
-				} else {
-					cap = formatTgCaption(it.msg, prefix, b.cfg.MessageNewline)
-				}
-				go b.forwardTgToMax(ctx, it.msg, maxChatID, cap, isCrosspost)
-			}
-			return
-		}
-		b.cbSuccess(maxChatID)
-		slog.Info("TG→MAX media group sent", "mid", result.Body.Mid, "photos", photosSent)
-		b.repo.SaveMsg(items[0].msg.Chat.ID, items[0].msg.MessageID, maxChatID, result.Body.Mid, items[0].msg.MessageThreadID)
-	}
-
-	// Видео отправляем отдельно через direct API (SDK не поддерживает AddVideo)
-	for i, token := range videoTokens {
-		videoCaption := ""
-		if i == 0 && photosSent == 0 {
-			videoCaption = mdCaption // caption на первое видео если нет фото
-		}
-		mid, err := b.sendMaxDirectFormatted(ctx, maxChatID, videoCaption, "video", token, "", "")
-		if err != nil {
-			slog.Error("TG→MAX media group video send failed", "err", err)
-			continue
-		}
-		if i == 0 && photosSent == 0 {
-			b.repo.SaveMsg(items[0].msg.Chat.ID, items[0].msg.MessageID, maxChatID, mid, items[0].msg.MessageThreadID)
-		}
+		go b.forwardTgToMax(ctx, it.msg, maxChatID, cap, isCrosspost)
 	}
 }
