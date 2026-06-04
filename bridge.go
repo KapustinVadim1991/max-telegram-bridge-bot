@@ -89,7 +89,7 @@ func NewBridge(cfg Config, repo Repository, tg TGSender, maxApi *maxbot.Api, max
 			Timeout: 5 * time.Minute, // для download/upload больших файлов
 		},
 		apiClient: &http.Client{
-			Timeout: 15 * time.Second, // для коротких API-запросов
+			Timeout: 45 * time.Second, // отправка в MAX /messages; MAX бывает медленным, 15с не хватало
 		},
 		whSecret:  secret,
 		cpWait:    make(map[int64]int64),
