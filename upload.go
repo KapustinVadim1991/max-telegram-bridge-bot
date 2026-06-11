@@ -228,12 +228,78 @@ func (b *Bridge) uploadTgMediaToMax(ctx context.Context, fileID string, uploadTy
 	return b.customUploadToMax(ctx, uploadType, resp.Body, fileName)
 }
 
+// MAX API режет text по 4000 символам. Берём запас на возможный учёт байт vs рун
+// и на forward/реплай-обёртки.
+const maxTextLimit = 3900
+
+// splitMaxText режет текст на куски ≤ limit рун, по возможности на границе перевода
+// строки или пробела в последних 20% куска (чтобы не рвать слова и абзацы).
+func splitMaxText(text string, limit int) []string {
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return []string{text}
+	}
+	var chunks []string
+	for len(runes) > 0 {
+		if len(runes) <= limit {
+			chunks = append(chunks, strings.TrimSpace(string(runes)))
+			break
+		}
+		cut := limit
+		minCut := limit * 4 / 5
+		// Сначала ищем перевод строки, потом пробел.
+		for i := limit; i > minCut; i-- {
+			if runes[i] == '\n' {
+				cut = i
+				goto found
+			}
+		}
+		for i := limit; i > minCut; i-- {
+			if runes[i] == ' ' {
+				cut = i
+				break
+			}
+		}
+	found:
+		chunk := strings.TrimSpace(string(runes[:cut]))
+		if chunk != "" {
+			chunks = append(chunks, chunk)
+		}
+		// Сам разделитель пропускаем
+		if cut < len(runes) && (runes[cut] == '\n' || runes[cut] == ' ') {
+			cut++
+		}
+		runes = runes[cut:]
+	}
+	return chunks
+}
+
 // sendMaxDirect — отправка сообщения в MAX напрямую (обход SDK)
 func (b *Bridge) sendMaxDirect(ctx context.Context, chatID int64, text string, attType string, token string, replyTo string) (string, error) {
 	return b.sendMaxDirectFormatted(ctx, chatID, text, attType, token, replyTo, "")
 }
 
+// sendMaxDirectFormatted шлёт сообщение в MAX. Если текст длиннее лимита MAX —
+// режет на части и шлёт несколько сообщений (первое с вложением и replyTo,
+// последующие — продолжения как реплаи на первое). Возвращает mid первого.
 func (b *Bridge) sendMaxDirectFormatted(ctx context.Context, chatID int64, text string, attType string, token string, replyTo string, format string) (string, error) {
+	chunks := splitMaxText(text, maxTextLimit)
+	if len(chunks) <= 1 {
+		return b.sendMaxChunk(ctx, chatID, text, attType, token, replyTo, format)
+	}
+	firstMid, err := b.sendMaxChunk(ctx, chatID, chunks[0], attType, token, replyTo, format)
+	if err != nil {
+		return firstMid, err
+	}
+	for _, part := range chunks[1:] {
+		if _, err := b.sendMaxChunk(ctx, chatID, part, "", "", firstMid, format); err != nil {
+			slog.Error("MAX send chunk failed", "err", err, "chatID", chatID)
+		}
+	}
+	return firstMid, nil
+}
+
+func (b *Bridge) sendMaxChunk(ctx context.Context, chatID int64, text string, attType string, token string, replyTo string, format string) (string, error) {
 	type attachment struct {
 		Type    string            `json:"type"`
 		Payload map[string]string `json:"payload"`

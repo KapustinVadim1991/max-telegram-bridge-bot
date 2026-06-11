@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	maxbot "github.com/max-messenger/max-bot-api-client-go"
 	maxschemes "github.com/max-messenger/max-bot-api-client-go/schemes"
@@ -33,6 +34,19 @@ func (b *Bridge) listenMax(ctx context.Context) {
 		}
 		updates = ch
 		slog.Info("MAX webhook mode")
+
+		// При завершении — снимаем подписку, чтобы MAX не долбился в мёртвый URL
+		// и чтобы при переключении в polling события сразу пошли (MAX иначе продолжит
+		// слать в старый webhook с экспоненциальным backoff).
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if _, err := b.maxApi.Subscriptions.Unsubscribe(shutdownCtx, whURL); err != nil {
+				slog.Error("MAX webhook unsubscribe failed", "err", err, "url", whURL)
+			} else {
+				slog.Info("MAX webhook unsubscribed", "url", whURL)
+			}
+		}()
 	} else {
 		updates = b.maxApi.GetUpdates(ctx)
 		slog.Info("MAX polling mode")
@@ -48,6 +62,28 @@ func (b *Bridge) listenMax(ctx context.Context) {
 			}
 
 			slog.Debug("MAX update", "type", fmt.Sprintf("%T", upd))
+
+			// Логируем выкидывание бота из чата — пара остаётся в БД (мб случайно
+			// выкинули, потом вернут), но видно кто/когда удалил.
+			if rm, isRm := upd.(*maxschemes.BotRemovedFromChatUpdate); isRm {
+				tgChatID, linked := b.repo.GetTgChat(rm.ChatId)
+				slog.Warn("MAX bot removed from chat",
+					"maxChat", rm.ChatId,
+					"byUser", rm.User.UserId,
+					"byUsername", rm.User.Username,
+					"byName", rm.User.Name,
+					"linkedTgChat", tgChatID,
+					"linked", linked)
+				continue
+			}
+			if add, isAdd := upd.(*maxschemes.BotAddedToChatUpdate); isAdd {
+				slog.Info("MAX bot added to chat",
+					"maxChat", add.ChatId,
+					"byUser", add.User.UserId,
+					"byUsername", add.User.Username,
+					"byName", add.User.Name)
+				continue
+			}
 
 			// Обработка удаления (только bridge, не crosspost)
 			if delUpd, isDel := upd.(*maxschemes.MessageRemovedUpdate); isDel {
