@@ -621,9 +621,9 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 			mdCaption = formatAttributionMD(name, mdText, b.cfg.MessageNewline)
 		}
 		m := maxbot.NewMessage().SetChat(maxChatID).SetText(mdCaption)
-		if !isCrosspost {
-			m.SetFormat("markdown")
-		}
+		// И bridge, и crosspost дают markdown-текст (formatTgCrosspostCaption тоже
+		// конвертирует entities через tgEntitiesToMarkdown), поэтому формат нужен всегда.
+		m.SetFormat("markdown")
 		if b.cfg.TgAPIURL != "" {
 			// Custom TG API — MAX не может скачать по URL, скачиваем и загружаем через reader
 			if uploaded, err := b.uploadTgPhotoToMax(ctx, photo.FileID); err == nil {
@@ -701,6 +701,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 			if fileURL, err := b.tgFileURL(ctx, msg.Sticker.FileID); err == nil {
 				if uploaded, err := b.maxApi.Uploads.UploadPhotoFromUrl(ctx, fileURL); err == nil {
 					m := maxbot.NewMessage().SetChat(maxChatID).SetText(caption)
+					m.SetFormat("markdown")
 					m.AddPhoto(uploaded)
 					if msg.ReplyToMessage != nil {
 						if maxReplyID, ok := b.repo.LookupMaxMsgID(msg.Chat.ID, msg.ReplyToMessage.MessageID); ok {
@@ -914,6 +915,31 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 	// Caption для crosspost уже содержит markdown (formatTgCrosspostCaption),
 	// так что формат одинаков для обоих режимов.
 	format := "markdown"
+
+	// MAX API не поддерживает текст + аудио-вложение в одном сообщении:
+	// при совместной отправке текст игнорируется. Если есть и текст, и аудио —
+	// отправляем их двумя отдельными сообщениями.
+	// Голосовые (msg.Voice) не имеют caption в TG, поэтому mdText для них всегда пуст —
+	// этот блок срабатывает только для аудиофайлов (msg.Audio) с подписью.
+	if mdText != "" && mediaToken != "" && (msg.Voice != nil || msg.Audio != nil) {
+		slog.Info("TG→MAX audio+text: sending as two messages", "uid", uid, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
+		// Сначала текст
+		if textMid, err := b.sendMaxDirectFormatted(ctx, maxChatID, mdCaption, "", "", replyTo, format); err != nil {
+			slog.Error("TG→MAX audio caption send failed", "err", err)
+		} else {
+			b.cbSuccess(maxChatID)
+			b.repo.SaveMsg(msg.Chat.ID, msg.MessageID, maxChatID, textMid, msg.MessageThreadID)
+			slog.Info("TG→MAX audio caption sent", "mid", textMid)
+		}
+		// Потом аудио без текста
+		if _, err := b.sendMaxDirectFormatted(ctx, maxChatID, "", mediaAttType, mediaToken, "", ""); err != nil {
+			slog.Error("TG→MAX audio file send failed", "err", err)
+			b.cbFail(maxChatID)
+		} else {
+			slog.Info("TG→MAX audio file sent", "tgChat", msg.Chat.ID, "maxChat", maxChatID)
+		}
+		return
+	}
 
 	if b.hasPendingForChat("tg2max", maxChatID) {
 		slog.Info("TG→MAX queued (pending exists)", "uid", uid, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
