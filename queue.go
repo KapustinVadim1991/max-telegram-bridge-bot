@@ -38,6 +38,12 @@ func (b *Bridge) hasPendingForChat(direction string, dstChatID int64) bool {
 // enqueueTg2Max ставит сообщение TG→MAX в очередь.
 func (b *Bridge) enqueueTg2Max(tgChatID int64, tgMsgID int, maxChatID int64, text, attType, attToken, replyTo, format string) {
 	now := time.Now().Unix()
+	// Пустой payload (нет ни текста, ни вложения) MAX отклоняет с
+	// errors.send-message.empty. Не ставим такое в очередь вовсе.
+	if strings.TrimSpace(text) == "" && (attType == "" || attToken == "") {
+		slog.Warn("enqueue tg2max skipped: empty payload", "tgChat", tgChatID, "tgMsg", tgMsgID, "maxChat", maxChatID)
+		return
+	}
 	item := &QueueItem{
 		Direction: "tg2max",
 		SrcChatID: tgChatID,
@@ -131,7 +137,9 @@ func (b *Bridge) processQueueTg2Max(ctx context.Context, item QueueItem, now tim
 		if strings.Contains(errStr, "403") || strings.Contains(errStr, "404") ||
 			strings.Contains(errStr, "chat.denied") ||
 			strings.Contains(errStr, "attachment not ready after") ||
-			strings.Contains(errStr, "must be at most") {
+			strings.Contains(errStr, "must be at most") ||
+			strings.Contains(errStr, "send-message.empty") ||
+			strings.Contains(errStr, "proto.payload") {
 			slog.Warn("queue item dropped (permanent error)", "id", item.ID, "err", errStr)
 			b.repo.DeleteFromQueue(item.ID)
 			return
