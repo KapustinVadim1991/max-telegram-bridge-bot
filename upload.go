@@ -314,9 +314,13 @@ func (b *Bridge) sendMaxChunk(ctx context.Context, chatID int64, text string, at
 		} `json:"link,omitempty"`
 	}
 
-	// format применяется только к тексту — при пустом тексте MAX отклоняет payload.
+    // format применяется только к тексту — при пустом тексте MAX отклоняет payload.
 	if text == "" {
 		format = ""
+	}
+	// Нет ни текста, ни вложения — MAX вернёт errors.send-message.empty.
+	if strings.TrimSpace(text) == "" && (attType == "" || token == "") {
+		return "", fmt.Errorf("MAX skip: send-message.empty (no text, no attachment)")
 	}
 	body := msgBody{Text: text, Format: format}
 	if attType != "" && token != "" {
