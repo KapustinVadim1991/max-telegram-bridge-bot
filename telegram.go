@@ -907,7 +907,16 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 		if b.hasPrefix("tg", msg.Chat.ID) {
 			name = "[TG] " + name
 		}
-		mdCaption = formatAttributionMD(name, mdText, b.cfg.MessageNewline)
+        mdCaption = formatAttributionMD(name, mdText, b.cfg.MessageNewline)
+	}
+
+	// Нечего пересылать: нет вложения и нет реального текста (опросы, гео,
+	// контакты, dice, сервисные сообщения). Иначе MAX вернёт
+	// errors.send-message.empty и сообщение зависнет в очереди.
+	if mediaAttType == "" && mediaToken == "" && strings.TrimSpace(mdText) == "" {
+		slog.Info("TG→MAX skip: nothing to send (no media, no text)",
+			"uid", uid, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
+		return
 	}
 
 	// Если для этого чата уже есть сообщения в очереди — не отправляем напрямую,
