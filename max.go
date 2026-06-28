@@ -1209,11 +1209,40 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 		}
 	}
 
+	// Telegram ограничивает подпись к медиа 1024 символами, а текстовое сообщение —
+	// 4096. Если caption длиннее — режем на части: первая идёт как подпись/первое
+	// сообщение, остальные досылаются отдельными сообщениями ("в разрезанном виде").
+	htmlCaptionFull := htmlCaption // полная подпись — для очереди (retry сам разобьёт)
+	hasMedia := len(albumMedia) > 0 || len(soloMedia) > 0
+	firstLimit := tgTextLimit
+	if hasMedia {
+		firstLimit = tgCaptionLimit
+	}
+	var capChunks []string
+	if useHTML {
+		capChunks = splitHTMLForTg(htmlCaption, firstLimit, tgTextLimit)
+	} else {
+		capChunks = splitPlainForTg(caption, firstLimit, tgTextLimit)
+	}
+	primaryCaption := ""
+	if len(capChunks) > 0 {
+		primaryCaption = capChunks[0]
+	}
+	var followups []string
+	if len(capChunks) > 1 {
+		followups = capChunks[1:]
+	}
+	// Используем урезанную первую часть как подпись/первое сообщение в TG.
+	// Оригинальный `caption` НЕ трогаем — он передаётся в рекурсивные вызовы
+	// forwardMaxToTg (миграция чата, сброс топиков), где нужен полный текст.
+	htmlCaption = primaryCaption
+
 	// Если для этого чата уже есть сообщения в очереди — не отправляем напрямую,
 	// чтобы не нарушить порядок доставки. Сразу ставим в очередь.
+	// В очередь кладём ПОЛНУЮ подпись (htmlCaptionFull) — retry сам её разобьёт.
 	if b.hasPendingForChat("max2tg", tgChatID) {
 		slog.Info("MAX→TG queued (pending exists)", "uid", msgUpd.Message.Sender.UserId, "maxChat", chatID, "tgChat", tgChatID)
-		b.enqueueMax2Tg(chatID, tgChatID, body.Mid, htmlCaption, qAttType, qAttURL, pm)
+		b.enqueueMax2Tg(chatID, tgChatID, body.Mid, htmlCaptionFull, qAttType, qAttURL, pm)
 		return
 	}
 
@@ -1296,7 +1325,7 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 		if useHTML {
 			sentMsgID, sendErr = b.tg.SendMessage(ctx, tgChatID, htmlCaption, &SendOpts{ParseMode: "HTML", ReplyToID: replyToID, ThreadID: threadID})
 		} else {
-			sentMsgID, sendErr = b.tg.SendMessage(ctx, tgChatID, caption, &SendOpts{ReplyToID: replyToID, ThreadID: threadID})
+			sentMsgID, sendErr = b.tg.SendMessage(ctx, tgChatID, primaryCaption, &SendOpts{ReplyToID: replyToID, ThreadID: threadID})
 		}
 	}
 
@@ -1356,11 +1385,38 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 			m := maxbot.NewMessage().SetChat(chatID).SetText(notifyText)
 			b.maxApi.Messages.Send(ctx, m)
 		}
-		b.enqueueMax2Tg(chatID, tgChatID, body.Mid, htmlCaption, qAttType, qAttURL, parseMode)
+		// Кладём в очередь полную подпись — retry разобьёт её заново.
+		b.enqueueMax2Tg(chatID, tgChatID, body.Mid, htmlCaptionFull, qAttType, qAttURL, parseMode)
 		b.cbFail(tgChatID)
 	} else {
 		b.cbSuccess(tgChatID)
 		slog.Info("MAX→TG sent", "msgID", sentMsgID, "media", mediaSent, "uid", msgUpd.Message.Sender.UserId, "maxChat", chatID, "tgChat", tgChatID)
 		b.repo.SaveMsg(tgChatID, sentMsgID, chatID, body.Mid, threadID)
+		// Досылаем "хвост" длинного сообщения отдельными сообщениями-реплаями.
+		if len(followups) > 0 {
+			b.sendTgFollowups(ctx, chatID, tgChatID, followups, useHTML, sentMsgID, threadID)
+		}
+	}
+}
+
+// sendTgFollowups досылает в TG продолжения длинного сообщения (части после
+// первой) отдельными сообщениями, связывая их реплаями для сохранения порядка.
+// При ошибке отправки остаток ставится в очередь, чтобы доставить позже и не
+// нарушить порядок последующих сообщений.
+func (b *Bridge) sendTgFollowups(ctx context.Context, maxChatID, tgChatID int64, chunks []string, useHTML bool, replyToID, threadID int) {
+	pm := ""
+	if useHTML {
+		pm = "HTML"
+	}
+	for idx, c := range chunks {
+		mid, err := b.tg.SendMessage(ctx, tgChatID, c, &SendOpts{ParseMode: pm, ReplyToID: replyToID, ThreadID: threadID})
+		if err != nil {
+			slog.Warn("MAX→TG followup failed, enqueuing remainder", "err", err, "tgChat", tgChatID, "remaining", len(chunks)-idx)
+			for _, rest := range chunks[idx:] {
+				b.enqueueMax2Tg(maxChatID, tgChatID, "", rest, "", "", pm)
+			}
+			return
+		}
+		replyToID = mid // следующая часть — реплай на предыдущую, держим ветку и порядок
 	}
 }

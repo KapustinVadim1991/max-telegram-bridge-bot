@@ -164,8 +164,31 @@ func (b *Bridge) processQueueMax2Tg(ctx context.Context, item QueueItem, now tim
 
 	threadID := b.repo.GetTgThreadID(item.DstChatID)
 
-	if item.AttType != "" && item.AttURL != "" {
-		opts := &SendOpts{Caption: item.Text, ParseMode: item.ParseMode, ThreadID: threadID}
+	hasMedia := item.AttType != "" && item.AttURL != ""
+
+	// Режем подпись/текст под лимиты Telegram (caption 1024, текст 4096).
+	useHTML := item.ParseMode == "HTML"
+	firstLimit := tgTextLimit
+	if hasMedia {
+		firstLimit = tgCaptionLimit
+	}
+	var chunks []string
+	if useHTML {
+		chunks = splitHTMLForTg(item.Text, firstLimit, tgTextLimit)
+	} else {
+		chunks = splitPlainForTg(item.Text, firstLimit, tgTextLimit)
+	}
+	primary := ""
+	if len(chunks) > 0 {
+		primary = chunks[0]
+	}
+	var followups []string
+	if len(chunks) > 1 {
+		followups = chunks[1:]
+	}
+
+	if hasMedia {
+		opts := &SendOpts{Caption: primary, ParseMode: item.ParseMode, ThreadID: threadID}
 		switch item.AttType {
 		case "photo":
 			sentMsgID, err = b.tg.SendPhoto(ctx, item.DstChatID, FileArg{URL: item.AttURL}, opts)
@@ -179,7 +202,7 @@ func (b *Bridge) processQueueMax2Tg(ctx context.Context, item QueueItem, now tim
 			sentMsgID, err = b.tg.SendPhoto(ctx, item.DstChatID, FileArg{URL: item.AttURL}, opts)
 		}
 	} else {
-		sentMsgID, err = b.tg.SendMessage(ctx, item.DstChatID, item.Text, &SendOpts{ParseMode: item.ParseMode, ThreadID: threadID})
+		sentMsgID, err = b.tg.SendMessage(ctx, item.DstChatID, primary, &SendOpts{ParseMode: item.ParseMode, ThreadID: threadID})
 	}
 
 	if err != nil {
@@ -209,4 +232,8 @@ func (b *Bridge) processQueueMax2Tg(ctx context.Context, item QueueItem, now tim
 	slog.Info("queue retry ok", "id", item.ID, "dir", "max2tg", "msgID", sentMsgID)
 	b.repo.SaveMsg(item.DstChatID, sentMsgID, item.SrcChatID, item.SrcMsgID, threadID)
 	b.repo.DeleteFromQueue(item.ID)
+	// Досылаем "хвост" длинного сообщения отдельными сообщениями-реплаями.
+	if len(followups) > 0 {
+		b.sendTgFollowups(ctx, item.SrcChatID, item.DstChatID, followups, useHTML, sentMsgID, threadID)
+	}
 }
