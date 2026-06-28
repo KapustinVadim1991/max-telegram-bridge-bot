@@ -1,13 +1,16 @@
+# syntax=docker/dockerfile:1
 FROM golang:1.24-alpine AS builder
 
 RUN apk add --no-cache gcc musl-dev
 
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
 
-RUN CGO_ENABLED=1 go build -o /max-telegram-bridge-bot .
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=1 go build -o /max-telegram-bridge-bot .
 
 FROM alpine:3.21
 
