@@ -528,17 +528,10 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 			if strings.HasPrefix(checkText, "[MAX]") || strings.HasPrefix(checkText, "[TG]") {
 				continue
 			}
-			// Маркер "не пересылать в MAX"
-			// Вариант A: невидимый символ в начале
-			if strings.HasPrefix(checkText, "\u200B") {
-			    continue
-			}
-			// Вариант B: хэштег в конце (можно оставить оба)
-			if strings.Contains(checkText, "#nb") {
-			    continue
-			}
-			
-			// Media group (альбом) — буферизуем и отправляем вместе
+			// Media group (альбом) — буферизуем и отправляем вместе.
+			// Маркер "#nb"/U+200B проверяем при flush по подписи всего альбома:
+			// в TG подпись лежит только на одном элементе, поэтому здесь, до
+			// буферизации, проверять нельзя — иначе остальные элементы уйдут.
 			if msg.MediaGroupID != "" {
 				videoID := ""
 				if msg.Video != nil {
@@ -553,6 +546,11 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 					msg:         msg,
 					maxChatID:   maxChatID, // был определён выше через GetThreadMaxChat или GetMaxChat
 				})
+				continue
+			}
+
+			// Маркер "не пересылать в MAX" (одиночное сообщение).
+			if skipBridgeMarker(checkText) {
 				continue
 			}
 
@@ -743,7 +741,9 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *TGMessage, maxChatID i
 		} else {
 			slog.Error("TG→MAX video upload failed", "err", err)
 			b.notifyTgUser(ctx, msg, maxChatID, uploadErrMsg(fmt.Sprintf("Не удалось отправить видео \"%s\" в MAX", name), err), isCrosspost)
-			// Видео не залилось — не блокируем отправку текста/подписи, fallback ниже подмешает [Видео].
+			// Видео не залилось (размер/лимиты API) — НЕ шлём текст без видео, чтобы
+			// не отправлять часть сообщения. Прерываемся.
+			return
 		}
 	} else if msg.VideoNote != nil {
 		if checkSize(msg.VideoNote.FileSize, "circle.mp4") {

@@ -389,6 +389,22 @@ func (r *sqliteRepo) ListUsers(platform string) ([]int64, error) {
 	return ids, nil
 }
 
+func (r *sqliteRepo) ErrorNotifyUsers() ([]int64, error) {
+	rows, err := r.db.Query("SELECT user_id FROM users WHERE error_notify = 1")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
 func (r *sqliteRepo) EnqueueSend(item *QueueItem) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

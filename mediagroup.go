@@ -80,6 +80,20 @@ func (b *Bridge) flushMediaGroup(ctx context.Context, groupID string) {
 		return
 	}
 
+	// Маркер "не пересылать" (#nb / U+200B) — в TG подпись альбома лежит только на
+	// одном элементе, поэтому проверяем подписи/тексты ВСЕХ элементов и, если хоть
+	// где-то есть маркер, пропускаем весь альбом целиком.
+	for _, it := range items {
+		raw := it.msg.Caption
+		if raw == "" {
+			raw = it.msg.Text
+		}
+		if skipBridgeMarker(raw) {
+			slog.Info("media group: #nb marker → skip album", "tgChat", items[0].msg.Chat.ID)
+			return
+		}
+	}
+
 	// Определяем maxChatID
 	isCrosspost := items[0].crosspost
 	maxChatID := items[0].maxChatID

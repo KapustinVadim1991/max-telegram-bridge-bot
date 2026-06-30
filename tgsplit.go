@@ -8,6 +8,7 @@ import (
 // Лимиты Telegram (в UTF-16 code units, как их считает Telegram):
 //   - подпись (caption) к медиа — 1024;
 //   - текстовое сообщение — 4096.
+//
 // Считаем точно, поэтому используем сами лимиты без запаса.
 const (
 	tgCaptionLimit = 1024
@@ -74,9 +75,9 @@ func splitPlainForTg(s string, firstLimit, restLimit int) []string {
 // htmlAtom — единица разбора HTML: либо тег, либо видимый символ/HTML-entity.
 type htmlAtom struct {
 	raw      string
-	width    int  // видимая ширина в UTF-16 units (для тегов 0)
+	width    int // видимая ширина в UTF-16 units (для тегов 0)
 	isTag    bool
-	tagKind  int  // 1 — открывающий, 2 — закрывающий, 0 — self-closing/прочее
+	tagKind  int    // 1 — открывающий, 2 — закрывающий, 0 — self-closing/прочее
 	closeRaw string // для открывающего тега — соответствующий закрывающий
 	isSpace  bool
 }

@@ -253,3 +253,20 @@ func TestFormatMaxCrosspostCaption(t *testing.T) {
 		})
 	}
 }
+
+func TestSkipBridgeMarker(t *testing.T) {
+	cases := map[string]bool{
+		"привет":                  false,
+		"смотри #nb":              true,
+		"#NB в верхнем регистре":  true,
+		"текст #Nb смешанный":     true,
+		"​невидимый префикс":      true,
+		"обычный #nbc не маркер?": true, // #nb как подстрока — осознанно срабатывает
+		"":                        false,
+	}
+	for in, want := range cases {
+		if got := skipBridgeMarker(in); got != want {
+			t.Errorf("skipBridgeMarker(%q) = %v, want %v", in, got, want)
+		}
+	}
+}

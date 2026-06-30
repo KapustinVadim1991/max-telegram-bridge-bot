@@ -618,9 +618,9 @@ func (b *Bridge) listenMax(ctx context.Context) {
 				// Anti-loop
 				if !strings.HasPrefix(text, "[TG]") && !strings.HasPrefix(text, "[MAX]") {
 					// Маркер "не пересылать в TG"
-			        if strings.HasPrefix(text, "\u200B") || strings.Contains(text, "#nb") {
-			            continue
-			        }
+					if skipBridgeMarker(text) {
+						continue
+					}
 					prefix := b.hasPrefix("max", chatID)
 					caption := formatMaxCaption(msgUpd, prefix, b.cfg.MessageNewline)
 					go b.forwardMaxToTg(ctx, msgUpd, tgChatID, caption, false)
@@ -645,8 +645,8 @@ func (b *Bridge) listenMax(ctx context.Context) {
 				continue
 			}
 			// Не пересылаем сообщения со спец символами
-			if strings.HasPrefix(text, "\u200B") || strings.Contains(text, "#nb") {
-			    continue
+			if skipBridgeMarker(text) {
+				continue
 			}
 
 			caption := formatMaxCrosspostCaption(msgUpd)
@@ -1111,6 +1111,7 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 	var sentMsgID int
 	var sendErr error
 	mediaSent := false
+	mediaDropped := false // вложение не удалось отправить (размер/ошибка) — текст без него не шлём
 	var qAttType, qAttURL string // для очереди при ошибке
 
 	// Определяем HTML caption: всегда для bridge-режима (жирное имя) и при наличии markups
@@ -1260,6 +1261,9 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 		if len(albumMedia) == 1 {
 			// Одно вложение — отправляем обычным сообщением (альбом из 1 элемента не имеет reply)
 			sentMsgID, sendErr = b.sendTgMediaFromURL(ctx, tgChatID, qAttURL, qAttType, htmlCaption, pm, replyToID, threadID, b.cfg.maxMaxFileBytes())
+			if sendErr != nil {
+				mediaDropped = true
+			}
 			var e *ErrFileTooLarge
 			if errors.As(sendErr, &e) {
 				slog.Warn("MAX→TG media too big", "name", e.Name, "size", e.Size)
@@ -1274,6 +1278,7 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 			if err != nil {
 				slog.Error("MAX→TG album send failed", "err", err)
 				sendErr = err
+				mediaDropped = true
 				m := maxbot.NewMessage().SetChat(chatID).SetText("Не удалось отправить медиаальбом.")
 				b.maxApi.Messages.Send(ctx, m)
 			} else if len(msgIDs) > 0 {
@@ -1295,6 +1300,7 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 		firstSolo = false
 		s, err := b.sendTgMediaFromURL(ctx, tgChatID, sm.url, sm.attType, smCaption, pm, smReplyTo, threadID, b.cfg.maxMaxFileBytes(), sm.name)
 		if err != nil {
+			mediaDropped = true
 			var e *ErrFileTooLarge
 			if errors.As(err, &e) {
 				slog.Warn("MAX→TG solo media too big", "name", e.Name, "size", e.Size)
@@ -1317,8 +1323,11 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 		}
 	}
 
-	// Текст без медиа
-	if !mediaSent {
+	// Текст без медиа.
+	// mediaDropped: вложение было, но не отправилось (размер/ошибка) — не шлём
+	// текст без него, чтобы не отправлять часть сообщения. Ошибка уйдёт в очередь
+	// на повтор ниже (sendErr уже выставлен).
+	if !mediaSent && !mediaDropped {
 		if text == "" {
 			return
 		}
@@ -1332,6 +1341,11 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 	if sendErr != nil {
 		errStr := sendErr.Error()
 		slog.Error("MAX→TG send failed", "err", errStr, "uid", msgUpd.Message.Sender.UserId, "maxChat", chatID, "tgChat", tgChatID)
+
+		// Уведомление об ошибке в админ-чат (флаг error_notify), не блокируя работу.
+		b.notifyErrorAdmins(func(ctx context.Context) string {
+			return b.maxToTgErrorReport(ctx, msgUpd, errStr)
+		})
 
 		// Группа преобразована в supergroup — автоматически мигрируем chat ID
 		var tgErr *TGError

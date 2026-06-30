@@ -76,6 +76,9 @@ type Repository interface {
 	// Users
 	TouchUser(userID int64, platform, username, firstName string)
 	ListUsers(platform string) ([]int64, error)
+	// ErrorNotifyUsers возвращает TG user id, которым слать уведомления об ошибках
+	// доставки (флаг error_notify в таблице users). Включается вручную в БД.
+	ErrorNotifyUsers() ([]int64, error)
 
 	// Send queue (retry при недоступности MAX/TG API)
 	EnqueueSend(item *QueueItem) error

@@ -6,6 +6,16 @@ import (
 	maxschemes "github.com/max-messenger/max-bot-api-client-go/schemes"
 )
 
+// skipBridgeMarker возвращает true, если сообщение помечено как «не пересылать
+// в другой мессенджер»: невидимый символ U+200B в начале или хэштег #nb в любом
+// месте текста (регистронезависимо). Используется в обоих направлениях.
+func skipBridgeMarker(text string) bool {
+	if strings.HasPrefix(text, "\u200B") {
+		return true
+	}
+	return strings.Contains(strings.ToLower(text), "#nb")
+}
+
 func tgName(msg *TGMessage) string {
 	if msg.From == nil {
 		if msg.SenderChat != nil {

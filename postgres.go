@@ -389,6 +389,22 @@ func (r *pgRepo) ListUsers(platform string) ([]int64, error) {
 	return ids, nil
 }
 
+func (r *pgRepo) ErrorNotifyUsers() ([]int64, error) {
+	rows, err := r.db.Query("SELECT user_id FROM users WHERE error_notify = TRUE")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
 func (r *pgRepo) EnqueueSend(item *QueueItem) error {
 	_, err := r.db.Exec(
 		`INSERT INTO send_queue (direction, src_chat_id, dst_chat_id, src_msg_id, text, att_type, att_token, reply_to, format, att_url, parse_mode, attempts, created_at, next_retry)

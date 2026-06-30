@@ -71,6 +71,11 @@ type Bridge struct {
 	// Буферизация TG media groups (альбомы)
 	mgMu      sync.Mutex
 	mgBuffers map[string]*mediaGroupBuffer // MediaGroupID → buffer
+
+	// Кэш списка получателей уведомлений об ошибках доставки (флаг error_notify).
+	errNotifyMu  sync.Mutex
+	errNotifyIDs []int64
+	errNotifyAt  time.Time
 }
 
 // NewBridge создаёт экземпляр Bridge.
@@ -223,6 +228,15 @@ func (b *Bridge) hasPrefix(platform string, chatID int64) bool {
 // Для crosspost — в ЛС владельцу связки (tg_owner_id), чтобы не мусорить в канал.
 // Если владелец не задан (legacy) — уведомление дропается с warn-логом.
 func (b *Bridge) notifyTgUser(ctx context.Context, srcChat *TGMessage, maxChatID int64, text string, isCrosspost bool) {
+	// Дублируем уведомление об ошибке в админ-чат (флаг error_notify), не блокируя
+	// основную работу. Существующая отправка в исходный чат — ниже, как раньше.
+	if srcChat != nil {
+		reason := text
+		b.notifyErrorAdmins(func(context.Context) string {
+			return b.tgToMaxErrorReport(srcChat, reason)
+		})
+	}
+
 	if isCrosspost {
 		_, tgOwner := b.repo.GetCrosspostOwner(maxChatID)
 		if tgOwner == 0 {
