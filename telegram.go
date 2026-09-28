@@ -75,8 +75,19 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 
 				maxMsgID, hasMapping := b.repo.LookupMaxMsgID(edited.Chat.ID, edited.MessageID)
 
-				// Если маппинг не найден и есть медиа — отправляем как новое сообщение (fallback)
+				// Если маппинг не найден и есть медиа — отправляем как новое сообщение (fallback).
+				// Маппинга нет и у сообщений, пропущенных по маркеру #nb / U+200B, —
+				// их правка не должна отправлять их в MAX.
 				if hasMedia && !hasMapping {
+					checkText := edited.Caption
+					if checkText == "" {
+						checkText = edited.Text
+					}
+					if skipBridgeMarker(checkText) {
+						slog.Info("TG→MAX edit skip: #nb marker", "tgChat", edited.Chat.ID, "tgMsg", edited.MessageID)
+						continue
+					}
+					slog.Info("TG→MAX edit without mapping: sending as new", "tgChat", edited.Chat.ID, "tgMsg", edited.MessageID)
 					prefix := b.hasPrefix("tg", edited.Chat.ID)
 					caption := formatTgCaption(edited, prefix, b.cfg.MessageNewline)
 					go b.forwardTgToMax(ctx, edited, maxChatID, caption, false)
@@ -551,6 +562,7 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 
 			// Маркер "не пересылать в MAX" (одиночное сообщение).
 			if skipBridgeMarker(checkText) {
+				slog.Info("TG→MAX skip: #nb marker", "tgChat", msg.Chat.ID, "tgMsg", msg.MessageID)
 				continue
 			}
 

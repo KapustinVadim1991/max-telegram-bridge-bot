@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -162,7 +163,16 @@ func (b *Bridge) processQueueMax2Tg(ctx context.Context, item QueueItem, now tim
 	var sentMsgID int
 	var err error
 
-	threadID := b.repo.GetTgThreadID(item.DstChatID)
+	// Тред-назначение — как в forwardMaxToTg: для thread-pair (MAX-чат привязан
+	// к конкретному TG-треду) берём тред связки, иначе — дефолтный тред пары.
+	// Без этого сообщения из thread-pair чатов уходили из очереди в General.
+	var threadID int
+	_, pairThread, isThreadPair := b.repo.GetThreadTgPair(item.SrcChatID)
+	if isThreadPair {
+		threadID = pairThread
+	} else {
+		threadID = b.repo.GetTgThreadID(item.DstChatID)
+	}
 
 	hasMedia := item.AttType != "" && item.AttURL != ""
 
@@ -188,27 +198,20 @@ func (b *Bridge) processQueueMax2Tg(ctx context.Context, item QueueItem, now tim
 	}
 
 	if hasMedia {
-		opts := &SendOpts{Caption: primary, ParseMode: item.ParseMode, ThreadID: threadID}
-		switch item.AttType {
-		case "photo":
-			sentMsgID, err = b.tg.SendPhoto(ctx, item.DstChatID, FileArg{URL: item.AttURL}, opts)
-		case "video":
-			sentMsgID, err = b.tg.SendVideo(ctx, item.DstChatID, FileArg{URL: item.AttURL}, opts)
-		case "audio":
-			sentMsgID, err = b.tg.SendAudio(ctx, item.DstChatID, FileArg{URL: item.AttURL}, opts)
-		case "file":
-			sentMsgID, err = b.tg.SendDocument(ctx, item.DstChatID, FileArg{URL: item.AttURL}, opts)
-		default:
-			sentMsgID, err = b.tg.SendPhoto(ctx, item.DstChatID, FileArg{URL: item.AttURL}, opts)
-		}
+		// Как и при прямой отправке — скачиваем файл сами и заливаем байтами.
+		// По ссылке MAX CDN Telegram скачивает файл не всегда (ссылки временные,
+		// содержат srcIp, у загрузки по URL лимит 20 МБ), и такие элементы висели
+		// в очереди до истечения срока.
+		sentMsgID, err = b.sendTgMediaFromURL(ctx, item.DstChatID, item.AttURL, item.AttType, primary, item.ParseMode, 0, threadID, b.cfg.maxMaxFileBytes())
 	} else {
 		sentMsgID, err = b.tg.SendMessage(ctx, item.DstChatID, primary, &SendOpts{ParseMode: item.ParseMode, ThreadID: threadID})
 	}
 
 	if err != nil {
 		errStr := err.Error()
-		// Топики выключены — сбрасываем и повторяем без thread_id
-		if threadID != 0 && (strings.Contains(errStr, "message thread not found") ||
+		// Топики выключены — сбрасываем и повторяем без thread_id.
+		// Для thread-pair тред задан связкой, сброс дефолтного треда пары не поможет.
+		if threadID != 0 && !isThreadPair && (strings.Contains(errStr, "message thread not found") ||
 			strings.Contains(errStr, "TOPIC_NOT_FOUND") ||
 			strings.Contains(errStr, "topics are disabled")) {
 			slog.Info("queue: forum topics disabled, resetting thread_id", "tgChat", item.DstChatID)
@@ -216,7 +219,9 @@ func (b *Bridge) processQueueMax2Tg(ctx context.Context, item QueueItem, now tim
 			b.repo.IncrementAttempt(item.ID, now.Unix()) // retry immediately
 			return
 		}
-		if strings.Contains(errStr, "TOPIC_CLOSED") || strings.Contains(errStr, "403") || strings.Contains(errStr, "chat not found") ||
+		var eTooLarge *ErrFileTooLarge
+		if errors.As(err, &eTooLarge) ||
+			strings.Contains(errStr, "TOPIC_CLOSED") || strings.Contains(errStr, "403") || strings.Contains(errStr, "chat not found") ||
 			strings.Contains(errStr, "can't parse entities") ||
 			strings.Contains(errStr, "caption is too long") ||
 			strings.Contains(errStr, "message is too long") ||
