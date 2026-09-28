@@ -1134,6 +1134,12 @@ func (b *Bridge) handleTgChannelPost(ctx context.Context, msg *TGMessage) {
 		return
 	}
 
+	// Маркер "не пересылать в MAX" (#nb / U+200B). Для альбомов подпись лежит
+	// только на одном элементе, поэтому там проверка идёт при flush (mediagroup.go).
+	if msg.MediaGroupID == "" && skipBridgeMarker(checkText) {
+		return
+	}
+
 	caption := formatTgCrosspostCaption(msg)
 
 	// Применяем замены для TG→MAX
